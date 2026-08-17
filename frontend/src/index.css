@@ -1,0 +1,237 @@
+@import "tailwindcss";
+
+@theme {
+  --color-gov-blue: var(--theme-primary, #0d1b3e); /* deep navy */
+  --color-gov-yellow: var(--theme-secondary, #facc15); /* yellow-400 */
+  --color-gov-white: #ffffff;
+  --color-gov-bg: var(--theme-bg, #eef2f9); /* slightly cooler bg */
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-gov-bg text-gray-900 antialiased;
+    font-family: var(--font-sans);
+  }
+
+  /* Otimização de renderização de texto para UX limpa */
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Glassmorphism Premium Utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+}
+
+.glass-panel-dark {
+  background: rgba(13, 27, 62, 0.88); /* deep navy */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Micro-animações Modernas */
+.hover-lift {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px -8px rgba(13, 27, 62, 0.3);
+}
+
+.active-scale:active {
+  transition: transform 0.1s ease;
+  transform: scale(0.97);
+}
+
+/* Barra de Rolagem Customizada e Elegante */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 215, 0, 0.3);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 215, 0, 0.6);
+}
+
+/* ==========================================
+   DESIGN TOKENS - Rounded Corner System
+   ========================================== */
+@theme {
+  /* Border Radius Scale - Consistent "Cantos Arredondados" */
+  --radius-none: 0;
+  --radius-xs: 0.125rem;     /* 2px - Botões pequenos, tags */
+  --radius-sm: 0.25rem;      /* 4px - Inputs, chips, badges */
+  --radius-md: 0.375rem;     /* 6px - Cards padrão, botões */
+  --radius-lg: 0.5rem;       /* 8px - Cards elevados, modais pequenos */
+  --radius-xl: 0.75rem;      /* 12px - Painéis principais, seções */
+  --radius-2xl: 1rem;        /* 16px - Cards de destaque, modais */
+  --radius-3xl: 1.5rem;      /* 24px - Hero sections, cards especiais */
+  --radius-4xl: 2rem;        /* 32px - Contos/Stories cards, features */
+  --radius-full: 9999px;     /* Pills, avatares, botões circulares */
+
+  /* Spacing scale para consistência visual */
+  --space-card-padding: 1.5rem;   /* 24px - Padding interno padrão cards */
+  --space-card-gap: 1rem;         /* 16px - Gap entre elementos no card */
+  --space-section-gap: 2rem;      /* 32px - Gap entre seções */
+}
+
+/* Utility classes para cantos arredondados consistentes */
+.rounded-card { border-radius: var(--radius-2xl, 1rem); }
+.rounded-card-sm { border-radius: var(--radius-xl, 0.75rem); }
+.rounded-card-lg { border-radius: var(--radius-3xl, 1.5rem); }
+.rounded-story { border-radius: var(--radius-4xl, 2rem); }
+.rounded-panel { border-radius: var(--radius-2xl, 1rem); }
+.rounded-input { border-radius: var(--radius-xl, 0.75rem); }
+.rounded-btn { border-radius: 9999px; }
+.rounded-badge { border-radius: 9999px; }
+.rounded-avatar { border-radius: 9999px; }
+.rounded-modal { border-radius: var(--radius-3xl, 1.5rem); }
+.rounded-tooltip { border-radius: var(--radius-lg, 0.5rem); }
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-2xl, 1rem);
+}
+
+.glass-card-lg {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-3xl, 1.5rem);
+}
+
+.glass-story {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-4xl, 2rem);
+}
+
+/* Story/Conto specific styles */
+.story-card {
+  position: relative;
+  overflow: hidden;
+  background-color: #ffffff;
+  box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+  border: 1px solid #f3f4f6;
+  border-radius: var(--radius-4xl, 2rem);
+}
+
+.story-card:hover {
+  box-shadow: 0 20px 40px -12px rgba(13, 27, 62, 0.25);
+  transform: translateY(-8px);
+}
+
+.story-card-gradient {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.5s ease;
+  border-radius: var(--radius-4xl, 2rem);
+  background: linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.story-card-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  background: linear-gradient(135deg, var(--theme-primary, #0d1b3e) 0%, var(--theme-secondary, #facc15) 100%);
+}
+
+.story-card-gradient:hover::before {
+  opacity: 0.05;
+}
+
+.story-card-gradient:hover {
+  box-shadow: 0 24px 48px -16px rgba(13, 27, 62, 0.3);
+}
+
+/* Card content area with consistent padding */
+.story-content {
+  position: relative;
+  z-index: 10;
+  padding: 1.5rem;
+}
+
+/* Story image with consistent rounded top */
+.story-image {
+  width: 100%;
+  height: 12rem;
+  object-fit: cover;
+  border-radius: var(--radius-4xl, 2rem) var(--radius-4xl, 2rem) 0 0;
+}
+
+/* Consistent avatar sizes */
+.avatar-xs { width: 1.5rem; height: 1.5rem; border-radius: 9999px; }
+.avatar-sm { width: 2rem; height: 2rem; border-radius: 9999px; }
+.avatar-md { width: 2.5rem; height: 2.5rem; border-radius: 9999px; }
+.avatar-lg { width: 3.5rem; height: 3.5rem; border-radius: 9999px; }
+.avatar-xl { width: 5rem; height: 5rem; border-radius: 9999px; }
+
+/* Consistent button radii */
+.btn-pill { border-radius: 9999px; padding: 0.75rem 1.5rem; }
+.btn-card { border-radius: 0.75rem; padding: 0.5rem 1rem; }
+.btn-story { border-radius: 1rem; padding: 1rem 2rem; }
+
+/* Input with consistent radii */
+.input-field { border-radius: 0.75rem; border: 2px solid #f3f4f6; background-color: #f9fafb; }
+
+/* Badge/Tag radii */
+.badge { border-radius: 9999px; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 700; }
+.badge-lg { border-radius: 9999px; padding: 0.375rem 1rem; font-size: 0.875rem; font-weight: 700; }
+
+/* Modal/Overlay radii */
+.modal-content { border-radius: var(--radius-3xl, 1.5rem); }
+.drawer-content { border-radius: var(--radius-3xl, 1.5rem); }
+.tooltip-content { border-radius: var(--radius-lg, 0.5rem); }
+
+/* Media query */
+@media (max-width: 1024px) {
+  main {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+/* Border Radius Utilities - Consistent Rounded Corners */
+.rounded-app { border-radius: 1rem; }
+.rounded-app-lg { border-radius: 1.5rem; }
+.rounded-app-sm { border-radius: 0.5rem; }
+.rounded-app-full { border-radius: 9999px; }
+
+/* Input/Select rounded consistency */
+.input-rounded { border-radius: 0.75rem; }
+.card-rounded { border-radius: 1.5rem; }
+.btn-rounded { border-radius: 0.75rem; }
+.modal-rounded { border-radius: 1.5rem; }
+.table-rounded { border-radius: 1.5rem; }
+
