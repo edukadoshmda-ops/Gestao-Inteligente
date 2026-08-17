@@ -692,29 +692,29 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
 
         </div>
 
-        <div className="flex justify-between items-center pt-6 border-t border-gray-100 rounded-2xl">
+        <div className="flex flex-col-reverse sm:flex-row justify-between items-center gap-4 pt-6 border-t border-gray-100 rounded-2xl">
           <button
             type="button"
             onClick={onCancel}
-            className="px-8 py-3 text-gov-blue/50 font-black hover:text-gov-blue transition-all uppercase tracking-widest text-xs"
+            className="w-full sm:w-auto px-4 sm:px-8 py-3 text-gov-blue/50 font-black hover:text-gov-blue transition-all uppercase tracking-widest text-xs rounded-xl text-center"
           >
             Voltar para Lista
           </button>
           
-          <div className="flex gap-6">
+          <div className="flex w-full sm:w-auto gap-3 sm:gap-4">
             <button
               type="button"
               onClick={() => setFormData(initialState)}
-              className="px-8 py-3 text-gov-blue font-black border-2 border-gov-blue rounded-full hover:bg-gov-bg transition-all uppercase tracking-widest text-xs"
+              className="flex-1 sm:flex-initial px-4 sm:px-8 py-3 text-gov-blue font-black border-2 border-gov-blue rounded-xl hover:bg-gov-bg transition-all uppercase tracking-widest text-xs text-center"
             >
               Limpar
             </button>
             <button
               type="submit"
-              className="px-12 py-3 bg-gov-yellow text-gov-blue font-black rounded-full shadow-md hover:bg-yellow-300 transition-all flex items-center gap-2 uppercase tracking-widest text-xs"
+              className="flex-1 sm:flex-initial px-6 sm:px-10 py-3 bg-gov-yellow text-gov-blue font-black rounded-xl shadow-md hover:bg-yellow-300 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs shrink-0"
             >
-              <Save className="w-4 h-4" />
-              {initialData ? 'Atualizar Registro' : 'Salvar Registro'}
+              <Save className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">{initialData ? 'Atualizar Registro' : 'Salvar Registro'}</span>
             </button>
           </div>
         </div>
