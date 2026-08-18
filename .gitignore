@@ -13,3 +13,6 @@ coverage/
 
 # Local Netlify folder
 .netlify
+
+# Keep frontend .env.example for reference
+!frontend/.env.example

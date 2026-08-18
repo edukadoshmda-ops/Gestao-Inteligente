@@ -8,10 +8,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
-    "axios": "^1.16.0"
+    "axios": "^1.16.0",
+    "@netlify/functions": "^2.8.2"
   },
   "devDependencies": {
-    "@netlify/functions": "^3.0.0",
     "typescript": "^5.8.2"
   }
 }

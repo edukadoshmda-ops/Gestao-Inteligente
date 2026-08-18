@@ -1,29 +1,18 @@
 [build]
-  command = "npm ci --prefix frontend && npm run build --prefix frontend"
+  command = "cd frontend && npm install && npm run build"
   publish = "frontend/dist"
   functions = "netlify/functions"
 
 # Configuração das Functions
 [functions]
   node_bundler = "esbuild"
-  included_files = ["netlify/functions/package.json"]
-  external_node_modules = ["@supabase/supabase-js", "axios"]
+  included_files = ["netlify/functions/**/*"]
 
 [dev]
   command = "npm run dev"
   port = 8889
   targetPort = 3000
   autoLaunch = false
-
-# Variáveis de ambiente para as Functions (sem prefixo VITE_)
-[functions.environment]
-  SUPABASE_URL = ""
-  SUPABASE_SERVICE_ROLE_KEY = ""
-  SUPABASE_ANON_KEY = ""
-  SITE_URL = ""
-  ASAAS_API_KEY = ""
-  RESEND_API_KEY = ""
-  EMAIL_FROM = ""
 
 [[redirects]]
   from = "/*"
