@@ -44,9 +44,6 @@ const handler: Handler = async (event, context) => {
     const primaryColor = themeColor || '#0c4a6e'; // Padrão: Azul Cívico
     const headerBanner = bannerText || 'CONEXÃO ESTRATÉGICA 2026';
 
-    // Endereço de envio padrão ou configurado
-    const fromEmail = fromOverride || process.env.VITE_EMAIL_FROM || 'Campanha Eleitoral <onboarding@resend.dev>';
-
     console.log(`✉️ Iniciando disparo em massa de ${recipients.length} e-mails via Resend...`);
 
     const results = [];

@@ -8,6 +8,10 @@
   node_bundler = "esbuild"
   included_files = ["netlify/functions/**/*"]
 
+# Auto-installs dependencies declared in netlify/functions/package.json
+[[plugins]]
+  package = "@netlify/plugin-functions-install-core"
+
 [dev]
   command = "npm run dev"
   port = 8889
