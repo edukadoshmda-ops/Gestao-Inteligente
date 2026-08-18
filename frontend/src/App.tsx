@@ -166,13 +166,33 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      console.log('PWA install prompt detected');
+      console.log('✅ PWA install prompt detected', e);
     });
 
     // Tenta detectar se já está instalado
     if (window.matchMedia('(display-mode: standalone)').matches) {
       console.log('App já está instalado como PWA');
     }
+
+    // Debug: verificar se o service worker está registrado
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        console.log('Service Workers registrados:', registrations.length);
+        registrations.forEach(registration => {
+          console.log('SW:', registration.scope, registration.active?.state);
+        });
+      });
+    }
+
+    // Debug: verificar se o manifest está carregado
+    const manifestLink = document.querySelector('link[rel="manifest"]');
+    console.log('Manifest link:', manifestLink?.href);
+
+    console.log('Ambiente:', {
+      isLocal: window.location.hostname === 'localhost',
+      isHTTPS: window.location.protocol === 'https:',
+      userAgent: navigator.userAgent
+    });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
