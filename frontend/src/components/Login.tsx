@@ -141,7 +141,7 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         'candidato@teste.com', 'coordenador@teste.com', 'area@teste.com'
       ];
 
-      if (import.meta.env.DEV && demoRoles.includes(cleanEmail) && password === '123456') {
+      if (demoRoles.includes(cleanEmail) && password === '123456') {
         const fakeSession = {
           user: { id: `demo-${cleanEmail}`, email: cleanEmail },
           access_token: 'demo-token'

@@ -12,7 +12,7 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'pwa-icon.svg'],
         manifest: {
           name: 'Gestão de Votos Mirla DF 2026',
           short_name: 'Mirla DF',
@@ -20,17 +20,38 @@ export default defineConfig(({mode}) => {
           theme_color: '#1e3a8a',
           background_color: '#f8fafc',
           display: 'standalone',
+          start_url: '/',
           icons: [
             {
               src: 'pwa-icon.svg',
-              sizes: '192x192 512x512',
+              sizes: '192x192',
+              type: 'image/svg+xml',
+              purpose: 'any maskable'
+            },
+            {
+              src: 'pwa-icon.svg',
+              sizes: '512x512',
               type: 'image/svg+xml',
               purpose: 'any maskable'
             }
           ]
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+          globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/.*\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'image-cache',
+                expiration: {
+                  maxEntries: 60,
+                  maxAgeSeconds: 30 * 24 * 60 * 60
+                }
+              }
+            }
+          ]
         }
       })
     ],
