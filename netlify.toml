@@ -1,5 +1,5 @@
 [build]
-  command = "cd frontend && npm install && npm run build"
+  command = "cd frontend && npm install && npm run build && cd ../netlify/functions && npm install"
   publish = "frontend/dist"
   functions = "netlify/functions"
 
