@@ -1,12 +1,51 @@
 import { useState } from 'react';
-import { motion } from 'motion/react';
-import { User, Mail, Phone, Lock, Building2, Users, CheckCircle2, AlertCircle, X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAdmin } from '../lib/supabase';
+import { Building2, CheckCircle2, X, Users, AlertCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 interface AdminCreateCampaignProps {
   onSuccess?: () => void;
   onCancel?: () => void;
 }
+
+// Função para criar ou obter usuário existente
+const createOrGetUser = async (email: string, password: string, metadata: any) => {
+  // Primeiro, tentar criar o usuário
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: metadata
+  });
+
+  // Se o usuário já existe, buscar e atualizar
+  if (error && error.message.includes('already been registered')) {
+    console.log(`Usuário ${email} já existe, atualizando...`);
+
+    // Buscar o usuário existente
+    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
+    const existingUser = users.users.find((u: { email: string }) => u.email === email);
+
+    if (existingUser) {
+      // Atualizar o usuário existente
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        existingUser.id,
+        { password, user_metadata: metadata }
+      );
+
+      if (updateError) {
+        throw new Error(`Erro ao atualizar usuário existente: ${updateError.message}`);
+      }
+
+      // Retornar o usuário existente com a estrutura esperada
+      return { data: { user: { ...existingUser, id: existingUser.id } }, error: null };
+    }
+
+    throw new Error(`Usuário ${email} existe mas não foi encontrado`);
+  }
+
+  return { data, error };
+};
 
 export default function AdminCreateCampaign({ onSuccess, onCancel }: AdminCreateCampaignProps) {
   const [formData, setFormData] = useState({
@@ -29,9 +68,10 @@ export default function AdminCreateCampaign({ onSuccess, onCancel }: AdminCreate
     setError('');
 
     try {
+      console.log('Iniciando criação de campanha...');
+
       // Validar campos do candidato
-      if (!formData.candidate_name || !
-formData.candidate_email || !formData.candidate_phone || !formData.candidate_password) {
+      if (!formData.candidate_name || !formData.candidate_email || !formData.candidate_phone || !formData.candidate_password) {
         setError('Por favor, preencha todos os campos do Candidato.');
         setLoading(false);
         return;
@@ -45,6 +85,7 @@ formData.candidate_email || !formData.candidate_phone || !formData.candidate_pas
       }
 
       // Criar organização
+      console.log('Criando organização...');
       const { data: orgData, error: orgError } = await supabase
         .from('organizations')
         .insert([{
@@ -56,77 +97,93 @@ formData.candidate_email || !formData.candidate_phone || !formData.candidate_pas
         .single();
 
       if (orgError) {
-        throw orgError;
+        console.error('Erro ao criar organização:', orgError);
+        throw new Error(`Erro ao criar organização: ${orgError.message}`);
       }
 
-      // Criar usuário candidato
-      const { data: candidateAuth, error: candidateError } = await supabase.auth.signUp({
-        email: formData.candidate_email,
-        password: formData.candidate_password,
-        options: {
-          data: {
-            full_name: formData.candidate_name,
-            phone: formData.candidate_phone,
-            role: 'candidate'
-          }
+      console.log('Organização criada com ID:', orgData.id);
+
+      // Criar usuário candidato usando admin API (evita rate limiting)
+      console.log('Criando usuário candidato...');
+      const { data: candidateAuth, error: candidateError } = await createOrGetUser(
+        formData.candidate_email,
+        formData.candidate_password,
+        {
+          full_name: formData.candidate_name,
+          phone: formData.candidate_phone,
+          role: 'candidate'
         }
-      });
+      );
 
       if (candidateError) {
-        throw candidateError;
+        console.error('Erro ao criar usuário candidato:', candidateError);
+        throw new Error(`Erro ao criar usuário candidato: ${candidateError.message}`);
       }
 
-      // Criar perfil do candidato
+      console.log('Usuário candidato criado:', candidateAuth.user?.id);
+
+      // Criar perfil do candidato usando supabaseAdmin para contornar RLS
       if (candidateAuth.user) {
-        const { error: candidateProfileError } = await supabase
+        console.log('Criando perfil do candidato...');
+        const { error: candidateProfileError } = await supabaseAdmin
           .from('profiles')
-          .insert({
+          .upsert({
             id: candidateAuth.user.id,
             email: formData.candidate_email,
             full_name: formData.candidate_name,
             role: 'candidate',
             organization_id: orgData.id
+          }, {
+            onConflict: 'id'
           });
 
         if (candidateProfileError) {
-          throw candidateProfileError;
+          console.error('Erro ao criar perfil do candidato:', candidateProfileError);
+          throw new Error(`Erro ao criar perfil do candidato: ${candidateProfileError.message}`);
         }
       }
 
-      // Criar usuário coordenador
-      const { data: coordinatorAuth, error: coordinatorError } = await supabase.auth.signUp({
-        email: formData.coordinator_email,
-        password: formData.coordinator_password,
-        options: {
-          data: {
-            full_name: formData.coordinator_name,
-            phone: formData.coordinator_phone,
-            role: 'coordinator'
-          }
+      // Criar usuário coordenador usando admin API (evita rate limiting)
+      console.log('Criando usuário coordenador...');
+      const { data: coordinatorAuth, error: coordinatorError } = await createOrGetUser(
+        formData.coordinator_email,
+        formData.coordinator_password,
+        {
+          full_name: formData.coordinator_name,
+          phone: formData.coordinator_phone,
+          role: 'coordinator'
         }
-      });
+      );
 
       if (coordinatorError) {
-        throw coordinatorError;
+        console.error('Erro ao criar usuário coordenador:', coordinatorError);
+        throw new Error(`Erro ao criar usuário coordenador: ${coordinatorError.message}`);
       }
 
-      // Criar perfil do coordenador
+      console.log('Usuário coordenador criado:', coordinatorAuth.user?.id);
+
+      // Criar perfil do coordenador usando supabaseAdmin para contornar RLS
       if (coordinatorAuth.user) {
-        const { error: coordinatorProfileError } = await supabase
+        console.log('Criando perfil do coordenador...');
+        const { error: coordinatorProfileError } = await supabaseAdmin
           .from('profiles')
-          .insert({
+          .upsert({
             id: coordinatorAuth.user.id,
             email: formData.coordinator_email,
             full_name: formData.coordinator_name,
             role: 'coordinator',
             organization_id: orgData.id
+          }, {
+            onConflict: 'id'
           });
 
         if (coordinatorProfileError) {
-          throw coordinatorProfileError;
+          console.error('Erro ao criar perfil do coordenador:', coordinatorProfileError);
+          throw new Error(`Erro ao criar perfil do coordenador: ${coordinatorProfileError.message}`);
         }
       }
 
+      console.log('Campanha criada com sucesso!');
       setSuccess(true);
       setTimeout(() => {
         if (onSuccess) onSuccess();

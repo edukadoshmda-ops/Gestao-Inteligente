@@ -68,34 +68,7 @@ export function useExcelTools(
     setIsExporting(true);
     showToast('Gerando relatório estratégico...');
 
-    // Criar um controlador para timeout do servidor
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
-
     try {
-      // 1. TENTATIVA: Servidor Premium (Desktop)
-      const response = await fetch('http://localhost:3500/api/export-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ members, organization }),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        showToast(`✅ Sucesso! Planilha salva no Desktop.`);
-        alert(`✅ Relatório Gerado!\n\nArquivo: ${data.fileName}\nLocal: ${data.path}`);
-        setIsExporting(false);
-        return;
-      }
-      throw new Error("Servidor offline");
-
-    } catch (error) {
-      clearTimeout(timeoutId);
-      console.warn('Servidor offline ou lento. Usando download direto pelo navegador...');
-      showToast('📥 Baixando pelo navegador...');
 
       try {
         // 2. FALLBACK: ExcelJS direto no Navegador (Com download forçado)

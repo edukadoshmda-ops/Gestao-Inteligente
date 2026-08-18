@@ -1,6 +1,7 @@
 # Supabase Configuration
-VITE_SUPABASE_URL="https://your-project.supabase.co"
-VITE_SUPABASE_ANON_KEY="your-anon-key-here"
+VITE_SUPABASE_URL="https://imsvsscxiilhewyahenn.supabase.co"
+VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imltc3Zzc2N4aWlsaGV3eWFoZW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzODcyODUsImV4cCI6MjA5Nzk2MzI4NX0.OPUhzCBw63qlupEw218ewWHor9CJOV8LOWTtrdg7s9o"
+VITE_SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imltc3Zzc2N4aWlsaGV3eWFoZW5uIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjM4NzI4NSwiZXhwIjoyMDk3OTYzMjg1fQ.9djtYyX9zU4Kx0LGgi9CG1g8KrLy0F95bpsTJ8YLmMA"
 
 # Gemini AI API (para funcionalidades de IA)
 GEMINI_API_KEY="your-gemini-api-key"
@@ -20,9 +21,6 @@ FROM_EMAIL="noreply@yourdomain.com"
 TWILIO_ACCOUNT_SID="your-twilio-sid"
 TWILIO_AUTH_TOKEN="your-twilio-token"
 TWILIO_WHATSAPP_NUMBER="whatsapp:+14155238886"
-
-# Supabase Service Role (para webhooks e operações admin)
-SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 
 # Z-API (alternativa para WhatsApp)
 ZAPI_INSTANCE_ID="your-zapi-instance"

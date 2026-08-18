@@ -71,9 +71,9 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
         const planPrices = { full: 599, premium: 499, starter: 299 };
         await notificationService.sendUserActivationNotification(
           finalOrgId,
-          name,
-          email,
-          phone,
+          name || '',
+          email || '',
+          phone || '',
           { billingType: paymentMethod, value: planPrices[plan] }
         );
       }
@@ -144,10 +144,11 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
       <div className="min-h-screen bg-[#F4F6F9] font-sans text-[#1A202C] antialiased">
       
       {/* Barra de Segurança no Topo (Estilo Hotmart High-Trust) */}
-      <div className="bg-[#1A202C] text-[#E2E8F0] py-2 px-6 flex justify-between items-center text-[11px] font-medium tracking-wide">
+      <div className="bg-[#1A202C] text-[#E2E8F0] py-2 px-4 sm:px-6 flex justify-between items-center text-[9px] sm:text-[11px] font-medium tracking-wide">
         <div className="flex items-center gap-2 mx-auto sm:mx-0">
-          <Lock className="w-3.5 h-3.5 text-[#38A169]" />
-          <span>Ambiente 100% seguro e criptografado. Suas informações estão protegidas.</span>
+          <Lock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#38A169]" />
+          <span className="hidden sm:inline">Ambiente 100% seguro e criptografado. Suas informações estão protegidas.</span>
+          <span className="sm:hidden">Ambiente seguro e criptografado</span>
         </div>
         <div className="hidden sm:flex items-center gap-4">
           <span>SSL 256 BITS</span>
@@ -158,20 +159,20 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
 
       {/* Header com Navegação e Logo */}
       <header className="bg-white border-b border-[#E2E8F0] sticky top-0 z-40 shadow-sm transition-all duration-300 rounded-2xl">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <button 
             onClick={onBack}
-            className="flex items-center gap-2 text-xs font-bold uppercase text-[#718096] hover:text-[#003366] transition-colors group"
+            className="flex items-center gap-2 text-[10px] sm:text-xs font-bold uppercase text-[#718096] hover:text-[#003366] transition-colors group"
           >
-            <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" /> 
-            <span>Voltar</span>
+            <ArrowLeft className="w-3 h-3 sm:w-4 sm:h-4 transition-transform group-hover:-translate-x-1" />
+            <span className="hidden sm:inline">Voltar</span>
           </button>
 
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-[#A0AEC0] bg-[#EDF2F7] px-2.5 py-1 rounded-xl">CHECKOUT SEGURO</span>
+            <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-[#A0AEC0] bg-[#EDF2F7] px-2 sm:px-2.5 py-1 rounded-xl">CHECKOUT SEGURO</span>
           </div>
 
-          <div className="h-10 w-28 flex items-center">
+          <div className="h-8 w-20 sm:h-10 sm:w-28 flex items-center">
             <Logo className="w-full h-full text-[#003366]" />
           </div>
         </div>
@@ -181,11 +182,11 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         
         {/* Banner do Checkout */}
-        <div className="text-center mb-6 max-w-2xl mx-auto">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-[#003366] tracking-tight mb-2">
+        <div className="text-center mb-6 max-w-2xl mx-auto px-4">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-[#003366] tracking-tight mb-2 leading-tight">
             Falta muito pouco para <span className="text-[#E6A100]">blindar</span> a sua vitória!
           </h1>
-          <p className="text-sm text-[#718096] font-medium">
+          <p className="text-xs sm:text-sm text-[#718096] font-medium">
             Preencha seus dados de faturamento abaixo para ativar sua plataforma de inteligência eleitoral instantaneamente.
           </p>
         </div>
@@ -196,95 +197,95 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
           <div className="lg:col-span-2 space-y-6">
             
             {/* Card do Plano Selecionado */}
-            <div className="bg-[#003366] text-white p-6 rounded-2xl border border-white/10 shadow-md flex flex-col sm:flex-row justify-between items-center gap-4 relative overflow-hidden">
-              <div className="absolute top-0 right-0 bg-[#E6A100] text-[#003366] font-black text-[8px] uppercase tracking-widest px-3 py-1 rounded-bl-lg shadow-sm">
+            <div className="bg-[#003366] text-white p-4 sm:p-6 rounded-2xl border border-white/10 shadow-md flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4 relative overflow-hidden">
+              <div className="absolute top-0 right-0 bg-[#E6A100] text-[#003366] font-black text-[7px] sm:text-[8px] uppercase tracking-widest px-2 sm:px-3 py-1 rounded-bl-lg shadow-sm">
                 Plano Selecionado
               </div>
               <div>
-                <span className="text-[9px] font-black text-blue-200 uppercase tracking-widest block mb-0.5">Você está adquirindo:</span>
-                <h3 className="text-lg font-black uppercase tracking-tight text-[#E6A100]">{currentPlan.name}</h3>
-                <p className="text-xs text-blue-100 font-medium">{currentPlan.tagline}</p>
+                <span className="text-[8px] sm:text-[9px] font-black text-blue-200 uppercase tracking-widest block mb-0.5">Você está adquirindo:</span>
+                <h3 className="text-base sm:text-lg font-black uppercase tracking-tight text-[#E6A100]">{currentPlan.name}</h3>
+                <p className="text-[10px] sm:text-xs text-blue-100 font-medium">{currentPlan.tagline}</p>
               </div>
               <div className="text-right sm:text-right shrink-0">
-                <span className="text-[9px] font-black text-blue-200 uppercase tracking-widest block">Valor da Assinatura</span>
+                <span className="text-[8px] sm:text-[9px] font-black text-blue-200 uppercase tracking-widest block">Valor da Assinatura</span>
                 <div className="flex items-baseline gap-0.5 justify-end">
-                  <span className="text-xs font-bold text-white">R$</span>
-                  <span className="text-3xl font-black text-white tracking-tighter">{currentPlan.price.split(',')[0]}</span>
-                  <span className="text-xs font-bold text-blue-200">,00/mês</span>
+                  <span className="text-[10px] sm:text-xs font-bold text-white">R$</span>
+                  <span className="text-2xl sm:text-3xl font-black text-white tracking-tighter">{currentPlan.price.split(',')[0]}</span>
+                  <span className="text-[10px] sm:text-xs font-bold text-blue-200">,00/mês</span>
                 </div>
               </div>
             </div>
             
             {/* Bloco 1: Dados Pessoais */}
-            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-6 sm:p-8 relative overflow-hidden transition-all duration-300 hover:shadow-md">
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 sm:p-6 md:p-8 relative overflow-hidden transition-all duration-300 hover:shadow-md">
               <div className="absolute top-0 left-0 w-2 h-full bg-[#003366]" />
-              
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-8 h-8 rounded-full bg-[#003366] text-white flex items-center justify-center font-black text-sm">
+
+              <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#003366] text-white flex items-center justify-center font-black text-xs sm:text-sm">
                   1
                 </div>
                 <div>
-                  <h2 className="text-lg font-extrabold text-[#003366] uppercase tracking-wide">Dados de Faturamento</h2>
-                  <p className="text-xs text-[#718096] font-medium">Precisamos destas informações para gerar sua licença e emitir a nota fiscal</p>
+                  <h2 className="text-base sm:text-lg font-extrabold text-[#003366] uppercase tracking-wide">Dados de Faturamento</h2>
+                  <p className="text-[10px] sm:text-xs text-[#718096] font-medium">Precisamos destas informações para gerar sua licença e emitir a nota fiscal</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
                 <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-[#4A5568] block mb-1.5 uppercase tracking-wider">Nome Completo *</label>
+                  <label className="text-[10px] sm:text-xs font-bold text-[#4A5568] block mb-1 sm:mb-1.5 uppercase tracking-wider">Nome Completo *</label>
                   <div className="relative">
-                    <User className="w-4 h-4 text-[#A0AEC0] absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input 
-                      value={name} 
-                      onChange={e => setName(e.target.value)} 
-                      type="text" 
-                      placeholder="Ex: João da Silva" 
-                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-3.5 pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm" 
+                    <User className="w-4 h-4 text-[#A0AEC0] absolute left-3 sm:left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      type="text"
+                      placeholder="Ex: João da Silva"
+                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-2.5 sm:p-3.5 pl-9 sm:pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm text-sm sm:text-base"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-[#4A5568] block mb-1.5 uppercase tracking-wider">E-mail *</label>
+                  <label className="text-[10px] sm:text-xs font-bold text-[#4A5568] block mb-1 sm:mb-1.5 uppercase tracking-wider">E-mail *</label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-[#A0AEC0] absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input 
-                      value={email} 
-                      onChange={e => setEmail(e.target.value)} 
-                      type="email" 
-                      placeholder="Ex: joao@campanha.com" 
-                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-3.5 pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm" 
+                    <Mail className="w-4 h-4 text-[#A0AEC0] absolute left-3 sm:left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      type="email"
+                      placeholder="Ex: joao@campanha.com"
+                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-2.5 sm:p-3.5 pl-9 sm:pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm text-sm sm:text-base"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-[#4A5568] block mb-1.5 uppercase tracking-wider">CPF ou CNPJ *</label>
+                  <label className="text-[10px] sm:text-xs font-bold text-[#4A5568] block mb-1 sm:mb-1.5 uppercase tracking-wider">CPF ou CNPJ *</label>
                   <div className="relative">
-                    <IdCard className="w-4 h-4 text-[#A0AEC0] absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input 
-                      value={cpfCnpj} 
-                      onChange={e => setCpfCnpj(e.target.value)} 
-                      type="text" 
-                      placeholder="Ex: 000.000.000-00" 
-                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-3.5 pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm" 
+                    <IdCard className="w-4 h-4 text-[#A0AEC0] absolute left-3 sm:left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={cpfCnpj}
+                      onChange={e => setCpfCnpj(e.target.value)}
+                      type="text"
+                      placeholder="Ex: 000.000.000-00"
+                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-2.5 sm:p-3.5 pl-9 sm:pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm text-sm sm:text-base"
                     />
                   </div>
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-[#4A5568] block mb-1.5 uppercase tracking-wider">WhatsApp para Notificações</label>
+                  <label className="text-[10px] sm:text-xs font-bold text-[#4A5568] block mb-1 sm:mb-1.5 uppercase tracking-wider">WhatsApp para Notificações</label>
                   <div className="relative">
-                    <Phone className="w-4 h-4 text-[#A0AEC0] absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input 
-                      value={phone} 
-                      onChange={e => setPhone(e.target.value)} 
-                      type="text" 
-                      placeholder="Ex: (91) 99999-9999" 
-                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-3.5 pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm" 
+                    <Phone className="w-4 h-4 text-[#A0AEC0] absolute left-3 sm:left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      type="text"
+                      placeholder="Ex: (91) 99999-9999"
+                      className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-2.5 sm:p-3.5 pl-9 sm:pl-11 font-semibold text-[#1A202C] focus:border-[#E6A100] focus:bg-white outline-none transition-all shadow-sm text-sm sm:text-base"
                     />
                   </div>
-                  <span className="text-[10px] text-[#A0AEC0] font-bold block mt-1 uppercase tracking-wide">
+                  <span className="text-[9px] sm:text-[10px] text-[#A0AEC0] font-bold block mt-1 uppercase tracking-wide">
                     * Enviaremos as atualizações de ativação e relatórios estratégicos por aqui.
                   </span>
                 </div>
@@ -292,21 +293,21 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
             </div>
 
             {/* Bloco 2: Abas de Pagamento */}
-            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-6 sm:p-8 relative overflow-hidden transition-all duration-300 hover:shadow-md">
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 sm:p-6 md:p-8 relative overflow-hidden transition-all duration-300 hover:shadow-md">
               <div className="absolute top-0 left-0 w-2 h-full bg-[#E6A100]" />
-              
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-8 h-8 rounded-full bg-[#E6A100] text-white flex items-center justify-center font-black text-sm">
+
+              <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#E6A100] text-white flex items-center justify-center font-black text-xs sm:text-sm">
                   2
                 </div>
                 <div>
-                  <h2 className="text-lg font-extrabold text-[#003366] uppercase tracking-wide">Método de Pagamento</h2>
-                  <p className="text-xs text-[#718096] font-medium">Escolha a melhor opção. Conexão direta com processamento Asaas</p>
+                  <h2 className="text-base sm:text-lg font-extrabold text-[#003366] uppercase tracking-wide">Método de Pagamento</h2>
+                  <p className="text-[10px] sm:text-xs text-[#718096] font-medium">Escolha a melhor opção. Conexão direta com processamento Asaas</p>
                 </div>
               </div>
 
               {/* Botões das Abas de Pagamento */}
-              <div className="grid grid-cols-3 gap-3 p-1 bg-[#F8FAFC] rounded-2xl mb-8 border border-[#E2E8F0]">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 p-1 bg-[#F8FAFC] rounded-2xl mb-6 sm:mb-8 border border-[#E2E8F0]">
                 {[
                   { id: 'pix', label: 'PIX QR Code', icon: Zap, badge: 'Imediato' },
                   { id: 'card', label: 'Cartão', icon: CreditCard, badge: 'Até 12x' },
@@ -315,19 +316,19 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
                   <button
                     key={method.id}
                     onClick={() => setPaymentMethod(method.id as any)}
-                    className={`relative py-4 px-2 rounded-xl flex flex-col items-center justify-center gap-1.5 transition-all outline-none ${
-                      paymentMethod === method.id 
-                      ? 'bg-white text-[#003366] shadow-md scale-[1.02] border border-[#E2E8F0]' 
+                    className={`relative py-3 sm:py-4 px-1 sm:px-2 rounded-xl flex flex-col items-center justify-center gap-1 sm:gap-1.5 transition-all outline-none ${
+                      paymentMethod === method.id
+                      ? 'bg-white text-[#003366] shadow-md scale-[1.02] border border-[#E2E8F0]'
                       : 'text-[#718096] hover:bg-[#EDF2F7] hover:text-[#003366]'
                     }`}
                   >
-                    <method.icon className={`w-5 h-5 ${paymentMethod === method.id ? 'text-[#E6A100]' : 'text-[#A0AEC0]'}`} />
-                    <span className="text-[10px] font-black uppercase tracking-wide text-center leading-tight">{method.label}</span>
-                    
+                    <method.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${paymentMethod === method.id ? 'text-[#E6A100]' : 'text-[#A0AEC0]'}`} />
+                    <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-wide text-center leading-tight">{method.label}</span>
+
                     {/* Badge */}
-                    <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full scale-90 ${
-                      paymentMethod === method.id 
-                      ? 'bg-[#FEFCBF] text-[#B7791F]' 
+                    <span className={`hidden sm:inline text-[7px] sm:text-[8px] font-black uppercase px-1 sm:px-1.5 py-0.5 rounded-full scale-90 ${
+                      paymentMethod === method.id
+                      ? 'bg-[#FEFCBF] text-[#B7791F]'
                       : 'bg-[#EDF2F7] text-[#718096]'
                     }`}>
                       {method.badge}
@@ -337,7 +338,7 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
               </div>
 
               {/* Formulários dinâmicos de pagamento */}
-              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl p-6 min-h-[360px] flex flex-col justify-between">
+              <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl p-4 sm:p-6 min-h-[300px] sm:min-h-[360px] flex flex-col justify-between">
                 <AnimatePresence mode="wait">
                   
                   {/* OPÇÃO: PIX */}

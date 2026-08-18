@@ -605,12 +605,12 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
             <h3 className="font-black text-gov-blue uppercase text-xs">Desempenho por Seção Eleitoral</h3>
             <span className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter bg-orange-50 px-2 py-1">Dados Comparativos: Base vs Urna</span>
           </div>
-          <div className="overflow-x-auto relative">
-            <table className="w-full text-left">
+          <div className="relative" style={{ maxHeight: '600px', overflow: 'auto' }}>
+            <table className="w-full text-left min-w-[1400px]">
               <thead>
-                <tr className="bg-gov-blue text-white">
-                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-10 border-r-2 border-white/20">Região (Mun-Zona)</th>
-                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-[120px] bg-gov-blue z-10 border-r-2 border-white/20">Município / UF</th>
+                <tr className="bg-gov-blue text-white sticky top-0 z-20">
+                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-30 border-r-2 border-white/20">Região (Mun-Zona)</th>
+                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-[120px] bg-gov-blue z-30 border-r-2 border-white/20">Município / UF</th>
                   <th className="p-3 text-[9px] font-black uppercase">Zona</th>
                   <th className="p-3 text-[9px] font-black uppercase">Seção</th>
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap">Eleit. Aptos</th>
@@ -805,7 +805,9 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
                     })}
 
                     {/* Plotagem de Pontos Interativos */}
-                    {neighborhoodData.map((node, idx) => {
+                    {neighborhoodData.map((node, 
+                      
+                    ) => {
                       const xCoord = node.x - 80;
                       const yCoord = node.y - 50;
 

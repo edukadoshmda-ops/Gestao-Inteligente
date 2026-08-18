@@ -2,8 +2,8 @@ import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const handler: Handler = async (event, context) => {
@@ -13,30 +13,41 @@ const handler: Handler = async (event, context) => {
   }
 
   try {
-    const tseUrl = "https://resultados.tse.jus.br/oficial/ele2022/544/dados-simplificados/df/df-c0001-e000544-r.json";
-    
+    // URL do TSE para 2026 (atualizada)
+    const tseUrl = process.env.TSE_API_URL || "https://dados.tse.jus.br/eleicoes/2026/resultados/";
+
     console.log('🔄 Sincronizando via Netlify Function...');
-    const response = await axios.get(tseUrl);
+    const response = await axios.get(tseUrl, { timeout: 30000 });
     const dados = response.data;
 
-    if (!dados.cand) {
-      throw new Error('Formato de JSON do TSE inválido.');
+    // Estrutura genérica para dados do TSE
+    let candidates: any[] = [];
+    if (dados.cand) {
+      candidates = dados.cand;
+    } else if (Array.isArray(dados)) {
+      candidates = dados;
+    } else if (dados.candidatos) {
+      candidates = dados.candidatos;
     }
 
-    const insertData = dados.cand.map((cand: any) => ({
-      city: 'BRASÍLIA',
-      zone: '001',
-      section: '0001',
-      candidate_name: cand.nm,
-      votes: parseInt(cand.vap) || 0,
+    if (candidates.length === 0) {
+      throw new Error('Nenhum candidato encontrado no retorno do TSE.');
+    }
+
+    const insertData = candidates.map((cand: any) => ({
+      city: cand.municipio || 'BRASÍLIA',
+      zone: String(cand.zona || cand.NR_ZONA || '001'),
+      section: String(cand.secao || cand.NR_SECAO || '0001'),
+      candidate_name: cand.nm || cand.NM_VOTAVEL || cand.nome || 'CANDIDATO',
+      votes: parseInt(cand.vap || cand.QT_VOTOS || cand.votos || '0') || 0,
       election_year: 2026
     }));
 
     const { error } = await supabase
       .from('electoral_results')
-      .upsert(insertData, { 
+      .upsert(insertData, {
         onConflict: 'city,zone,section,candidate_name,election_year',
-        ignoreDuplicates: true 
+        ignoreDuplicates: true
       });
 
     if (error) throw error;

@@ -29,6 +29,7 @@ const handler: Handler = async (event, context) => {
     }
 
     const resendApiKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || '';
+    const fromEmail = fromOverride || process.env.EMAIL_FROM || process.env.VITE_EMAIL_FROM || 'Campanha Eleitoral <onboarding@resend.dev>';
     if (!resendApiKey) {
       return {
         statusCode: 400,

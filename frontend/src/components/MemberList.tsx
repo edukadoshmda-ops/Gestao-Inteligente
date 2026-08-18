@@ -48,11 +48,11 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
 
   return (
     <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-2xl">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
+      <div className="relative" style={{ maxHeight: '600px', overflow: 'auto' }}>
+        <table className="w-full text-left border-collapse min-w-[1100px]">
           <thead>
-            <tr className="bg-gov-blue text-white">
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">Nome Completo</th>
+            <tr className="bg-gov-blue text-white sticky top-0 z-20">
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 sticky left-0 bg-gov-blue z-30">Nome Completo</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">WhatsApp</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 text-center">Idade</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">Gênero</th>
@@ -123,7 +123,7 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
           </tbody>
         </table>
       </div>
-      <div className="bg-gov-blue text-white px-4 py-2 flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+      <div className="bg-gov-blue text-white px-4 py-2 flex justify-between items-center text-[10px] font-black uppercase tracking-widest sticky bottom-0 z-10">
         <span>Gestão Inteligente 2026</span>
         <span>Total: {members.length} registros</span>
       </div>

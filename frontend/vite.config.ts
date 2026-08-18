@@ -8,7 +8,7 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [
-      react(), 
+      react(),
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
@@ -30,7 +30,7 @@ export default defineConfig(({mode}) => {
           ]
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024 // Aumenta o limite para 4MB
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
         }
       })
     ],
@@ -43,8 +43,6 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: {
         '/.netlify/functions': {
@@ -54,5 +52,22 @@ export default defineConfig(({mode}) => {
         }
       }
     },
+    build: {
+      // Configuração para evitar conflitos no Netlify
+      outDir: 'dist',
+      sourcemap: false,
+      minify: 'esbuild',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            supabase: ['@supabase/supabase-js'],
+            charts: ['recharts'],
+            excel: ['exceljs', 'xlsx'],
+            pdf: ['jspdf', 'jspdf-autotable']
+          }
+        }
+      }
+    }
   };
 });

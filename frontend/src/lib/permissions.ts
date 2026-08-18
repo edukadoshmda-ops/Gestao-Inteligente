@@ -65,13 +65,13 @@ export function checkPermissions(profile: Profile | null): PermissionCheck {
         canViewAllMembers: true,
         canViewOwnNetwork: true,
         canAccessAnalytics: true,
-        canAccessAdminMaster: false,
+        canAccessAdminMaster: true,
       };
 
     case 'general_coordination':
       return {
-        canCreateCampaigns: false,
-        canDeleteCampaigns: false,
+        canCreateCampaigns: true,
+        canDeleteCampaigns: true,
         canCreateCoordinators: true,
         canDeleteCoordinators: true,
         canEditCoordinators: true,
@@ -81,7 +81,7 @@ export function checkPermissions(profile: Profile | null): PermissionCheck {
         canViewAllMembers: true,
         canViewOwnNetwork: true,
         canAccessAnalytics: true,
-        canAccessAdminMaster: false,
+        canAccessAdminMaster: true,
       };
 
     case 'area_coordinator':

@@ -73,6 +73,17 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Acesso próprio perfil" ON public.profiles;
 CREATE POLICY "Acesso próprio perfil" ON public.profiles FOR SELECT USING (id = auth.uid());
 
+DROP POLICY IF EXISTS "Criação de perfil pelo próprio usuário" ON public.profiles;
+CREATE POLICY "Criação de perfil pelo próprio usuário" ON public.profiles FOR INSERT WITH CHECK (id = auth.uid());
+
+DROP POLICY IF EXISTS "Criação de perfil por super_admin" ON public.profiles;
+CREATE POLICY "Criação de perfil por super_admin" ON public.profiles FOR INSERT WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role = 'super_admin'
+  )
+);
+
 -- Política de organizações transferida para cá, após o profile existir
 -- Permitimos leitura pública para carregar o tema na tela de login
 DROP POLICY IF EXISTS "Acesso público às organizações" ON public.organizations;
@@ -186,6 +197,37 @@ CREATE POLICY "Logar auditoria com isolamento" ON public.audit_logs FOR INSERT W
 DROP POLICY IF EXISTS "Ler auditoria da própria organização" ON public.audit_logs;
 CREATE POLICY "Ler auditoria da própria organização" ON public.audit_logs FOR SELECT USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
 
+-- 3.5. Tabela de Resultados Eleitorais (Boletins de Urna TSE)
+CREATE TABLE IF NOT EXISTS public.electoral_results (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    city text,
+    zone text,
+    section text,
+    candidate_name text,
+    votes integer DEFAULT 0,
+    total_votes_in_section integer,
+    municipality text,
+    apt_voters integer,
+    blank_votes integer DEFAULT 0,
+    null_votes integer DEFAULT 0,
+    election_year integer DEFAULT 2026,
+    org_id uuid REFERENCES public.organizations(id),
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.electoral_results ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Isolamento de Resultados Eleitorais" ON public.electoral_results;
+CREATE POLICY "Isolamento de Resultados Eleitorais" ON public.electoral_results FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
+
+-- Habilita Realtime para resultados eleitorais
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'electoral_results') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.electoral_results;
+    END IF;
+END $$;
+
 -- 5. Habilita o Realtime
 DO $$
 BEGIN
@@ -197,5 +239,8 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'announcements') THEN
         ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'electoral_results') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.electoral_results;
     END IF;
 END $$;
