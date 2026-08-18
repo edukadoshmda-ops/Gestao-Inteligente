@@ -31,6 +31,7 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
   const [brandOrg, setBrandOrg] = useState<any>(null);
   const [isSignUp, setIsSignUp] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
+  const [showResendButton, setShowResendButton] = useState(false);
 
   const PARTY_THEMES = [
     { name: 'Azul Padrão (PL/PP/Republicanos)', primary: '#1e3a8a', secondary: '#facc15', bg: '#eff6ff' },
@@ -142,6 +143,9 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
+          options: {
+            emailRedirectTo: window.location.origin
+          }
         });
         if (signUpError) throw signUpError;
         alert('Conta criada com sucesso! Verifique seu e-mail para confirmar.');
@@ -161,13 +165,50 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         'Email not confirmed': 'E-mail não confirmado. Verifique sua caixa de entrada.',
         'User already registered': 'Este e-mail já está cadastrado.',
         'Password should be at least 6 characters': 'A senha deve ter pelo menos 6 caracteres.',
+        'Email link is invalid or has expired': 'O link de confirmação expirou. Solicite um novo e-mail de confirmação.',
       };
 
       const translatedError = Object.keys(errorTranslations).find(key =>
         err.message.includes(key)
       );
 
-      setError(translatedError ? errorTranslations[translatedError] : err.message);
+      const errorMessage = translatedError ? errorTranslations[translatedError] : err.message;
+      setError(errorMessage);
+
+      // Mostrar botão de reenviar se o erro for de link expirado
+      if (err.message.includes('Email link is invalid or has expired') || err.message.includes('Email not confirmed')) {
+        setShowResendButton(true);
+      } else {
+        setShowResendButton(false);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setError('Digite seu e-mail para reenviar a confirmação.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      });
+
+      if (error) throw error;
+
+      alert('E-mail de confirmação reenviado com sucesso! Verifique sua caixa de entrada.');
+      setShowResendButton(false);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao reenviar e-mail de confirmação.');
     } finally {
       setLoading(false);
     }
@@ -242,6 +283,16 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
               className="bg-red-50 text-red-700 p-2 rounded-xl border-l-4 border-red-500 text-[10px] font-bold uppercase"
             >
               <strong>Erro:</strong> {error}
+              {showResendButton && (
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  disabled={loading}
+                  className="block w-full mt-2 bg-red-600 text-white py-2 rounded-lg text-[9px] font-bold uppercase hover:bg-red-700 transition-all disabled:opacity-50"
+                >
+                  {loading ? 'Enviando...' : 'Reenviar E-mail de Confirmação'}
+                </button>
+              )}
             </motion.div>
           )}
 
