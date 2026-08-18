@@ -10,7 +10,6 @@ import LandingPage from './components/LandingPage';
 import PublicRegister from './components/PublicRegister';
 import SalesPage from './components/SalesPage';
 import RootPanel from './components/RootPanel';
-import CampaignCreate from './components/CampaignCreate';
 import PWAInstaller from './components/PWAInstaller';
 import { Settings, Loader2, DownloadCloud, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -26,7 +25,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showLogin, setShowLogin] = useState(new URLSearchParams(window.location.search).has('org'));
   const [showSales, setShowSales] = useState(false);
-  const [showCampaignCreate, setShowCampaignCreate] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'full' | 'premium' | 'starter'>('full');
   const [brandOrg, setBrandOrg] = useState<Organization | null>(null);
   const [isPublicForm, setIsPublicForm] = useState(new URLSearchParams(window.location.search).get('public') === 'true');
@@ -426,7 +424,6 @@ export default function App() {
     );
   }
 
-  if (showCampaignCreate) return <CampaignCreate onSuccess={() => setShowCampaignCreate(false)} onCancel={() => setShowCampaignCreate(false)} />;
   if (showSales) return <SalesPage onBack={() => setShowSales(false)} orgId={profile?.organization?.id} plan={selectedPlan} onChangePlan={setSelectedPlan} />;
   if (isPublicForm) return <PublicRegister onBack={() => setIsPublicForm(false)} />;
 
@@ -443,7 +440,7 @@ export default function App() {
 
   return (
     <>
-      <LandingPage 
+      <LandingPage
         onStart={(plan) => {
           if (plan === 'full' || plan === 'premium' || plan === 'starter') {
             setSelectedPlan(plan);
@@ -451,10 +448,9 @@ export default function App() {
             setSelectedPlan('full');
           }
           setShowSales(true);
-        }} 
+        }}
         onLogin={() => setShowLogin(true)}
         onPublicRegister={() => setIsPublicForm(true)}
-        onCreateCampaign={() => setShowCampaignCreate(true)}
         onInstall={handleInstallOpen}
         canInstall={!!deferredPrompt}
       />

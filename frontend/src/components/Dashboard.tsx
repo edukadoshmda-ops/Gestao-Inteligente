@@ -19,6 +19,7 @@ import ElectoralIntelligence from './ElectoralIntelligence';
 import AdminMaster from './AdminMaster';
 import AIInsights from './AIInsights';
 import ElectionDay from './ElectionDay';
+import Settings from './Settings';
 import { checkPermissions, getNetworkFilter } from '../lib/permissions';
 
 import { Organization, Profile } from '../types';
@@ -43,7 +44,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const [selectedCoordinator, setSelectedCoordinator] = useState<Coordinator | null>(null);
   const [activeCoordinator, setActiveCoordinator] = useState<Coordinator | null>(null);
   const [genderFilter, setGenderFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'list' | 'report' | 'gender' | 'coordinators' | 'ranking' | 'chat' | 'materials' | 'intelligence' | 'neighborhood' | 'admin_master' | 'ai_manager' | 'election_day'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'report' | 'gender' | 'coordinators' | 'ranking' | 'chat' | 'materials' | 'intelligence' | 'neighborhood' | 'admin_master' | 'ai_manager' | 'election_day' | 'settings'>('list');
 
   // Verificar permissões do usuário
   const permissions = checkPermissions(profile);
@@ -665,13 +666,13 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
                 {activeTab === 'coordinators' ? (
                   <div className="space-y-6">
-                    <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md flex justify-between items-center rounded-2xl">
+                    <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 rounded-2xl">
                       <h3 className="text-xl font-black text-gov-blue uppercase">Gestão de Coordenadores</h3>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 w-full sm:w-auto">
                         {isSuperAdmin && (
                           <button
                             onClick={handleClearCoordinators}
-                            className="bg-red-50 text-red-600 border border-red-200 px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-red-100"
+                            className="bg-red-50 text-red-600 border border-red-200 px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-red-100 flex-shrink-0"
                             title="Apagar Todos os Coordenadores"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -680,7 +681,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                         {permissions.canCreateCoordinators && (
                           <button
                             onClick={() => setIsAddingCoordinator(true)}
-                            className="bg-gov-blue text-white px-6 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl"
+                            className="bg-gov-blue text-white px-6 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl flex-shrink-0"
                           >
                             <Plus className="w-4 h-4" /> Novo Coordenador
                           </button>
@@ -757,6 +758,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                   />
                 ) : activeTab === 'election_day' ? (
                   <ElectionDay members={members} />
+                ) : activeTab === 'settings' ? (
+                  <Settings username={username} />
                 ) : activeTab === 'admin_master' && permissions.canAccessAdminMaster ? (
                   <AdminMaster />
                 ) : (

@@ -25,7 +25,14 @@ CREATE TABLE IF NOT EXISTS public.organizations (
 
 -- Configuração de Segurança (RLS) para Organizations
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+
+-- Políticas imediatas para Organizations (antes de profiles existir)
 DROP POLICY IF EXISTS "Acesso público às organizações" ON public.organizations;
+CREATE POLICY "Acesso público às organizações" ON public.organizations FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Criação pública de organizações" ON public.organizations;
+CREATE POLICY "Criação pública de organizações" ON public.organizations FOR INSERT WITH CHECK (true);
+
 -- A política de atualização será criada após a tabela profiles ser definida
 
 -- 0.1 Criação da Tabela de Perfis (Atualizada com email e múltiplos papéis)

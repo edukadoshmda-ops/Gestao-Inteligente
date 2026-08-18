@@ -357,7 +357,7 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <>
-                {isSignUp ? 'Criar Nova Campanha' : 'Acessar Painel'}
+                {isSignUp ? 'Criar Conta' : 'Acessar Painel'}
                 <ArrowRight className="ml-1.5 w-3 h-3 group-hover:translate-x-1 transition-transform text-gov-yellow" />
               </>
             )}

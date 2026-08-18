@@ -605,12 +605,12 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
             <h3 className="font-black text-gov-blue uppercase text-xs">Desempenho por Seção Eleitoral</h3>
             <span className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter bg-orange-50 px-2 py-1">Dados Comparativos: Base vs Urna</span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto relative">
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-gov-blue text-white">
-                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap">Região (Mun-Zona)</th>
-                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap">Município / UF</th>
+                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-10 border-r-2 border-white/20">Região (Mun-Zona)</th>
+                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-[120px] bg-gov-blue z-10 border-r-2 border-white/20">Município / UF</th>
                   <th className="p-3 text-[9px] font-black uppercase">Zona</th>
                   <th className="p-3 text-[9px] font-black uppercase">Seção</th>
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap">Eleit. Aptos</th>
@@ -631,8 +631,8 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
                 {comparisonData.length > 0 ? (
                   comparisonData.map((row, idx) => (
                     <tr key={idx} className="border-b border-gray-50 hover:bg-gov-bg transition-colors rounded-2xl">
-                      <td className="p-3 text-[10px] font-black text-gray-800 bg-gray-50/50 whitespace-nowrap rounded-2xl">{row.municipality}-{row.zone}</td>
-                      <td className="p-3 text-[10px] font-bold text-gray-700 whitespace-nowrap">{row.municipality}</td>
+                      <td className="p-3 text-[10px] font-black text-gray-800 bg-gray-50/50 whitespace-nowrap rounded-2xl sticky left-0 z-10 border-r-2 border-white/20">{row.municipality}-{row.zone}</td>
+                      <td className="p-3 text-[10px] font-bold text-gray-700 whitespace-nowrap sticky left-[120px] z-10 border-r-2 border-white/20">{row.municipality}</td>
                       <td className="p-3 text-[11px] font-black text-gov-blue">{row.zone}</td>
                       <td className="p-3 text-[11px] font-black text-gov-blue">{row.section}</td>
                       <td className="p-3 text-[11px] font-bold text-gray-500">{row.aptVoters?.toLocaleString('pt-BR') ?? '-'}</td>

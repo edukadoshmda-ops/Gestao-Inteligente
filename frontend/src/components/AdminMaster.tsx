@@ -5,6 +5,7 @@ import { Building2, Plus, Users, CreditCard, CheckCircle2, AlertCircle, RefreshC
 import { motion, AnimatePresence } from 'motion/react';
 import { asaasService } from '../services/asaas';
 import notificationService from '../services/notifications';
+import AdminCreateCampaign from './AdminCreateCampaign';
 
 export default function AdminMaster() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
@@ -12,6 +13,7 @@ export default function AdminMaster() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingUser, setIsAddingUser] = useState(false);
+  const [isCreatingCampaign, setIsCreatingCampaign] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [formData, setFormData] = useState({ candidate_name: '', subdomain: '' });
@@ -232,6 +234,12 @@ export default function AdminMaster() {
             </div>
             <div className="flex gap-2">
               <button
+                onClick={() => setIsCreatingCampaign(true)}
+                className="bg-gov-yellow text-gov-blue px-4 py-3 font-black uppercase text-xs flex items-center gap-2 hover:bg-yellow-400 transition-all shadow-lg rounded-2xl"
+              >
+                <Building2 className="w-4 h-4" /> Nova Campanha
+              </button>
+              <button
                 onClick={() => setIsAddingUser(true)}
                 className="bg-green-600 text-white px-4 py-3 font-black uppercase text-xs flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg rounded-2xl"
               >
@@ -300,6 +308,16 @@ export default function AdminMaster() {
             </div>
           </form>
         </motion.div>
+      )}
+
+      {isCreatingCampaign && (
+        <AdminCreateCampaign
+          onSuccess={() => {
+            setIsCreatingCampaign(false);
+            fetchOrgs();
+          }}
+          onCancel={() => setIsCreatingCampaign(false)}
+        />
       )}
 
       {isAddingUser && (

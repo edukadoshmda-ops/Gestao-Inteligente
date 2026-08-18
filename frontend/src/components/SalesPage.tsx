@@ -8,6 +8,7 @@ import {
   Users, Brain, Target, CalendarCheck, MessageSquare, FileSpreadsheet
 } from 'lucide-react';
 import Logo from './Logo';
+import PostPaymentRegistration from './PostPaymentRegistration';
 import { supabase } from '../lib/supabase';
 import notificationService from '../services/notifications';
 
@@ -23,6 +24,8 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
   const [isProcessing, setIsProcessing] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState<any>(null);
   const [checkoutError, setCheckoutError] = useState('');
+  const [showRegistration, setShowRegistration] = useState(false);
+  const [createdOrgId, setCreatedOrgId] = useState<string | undefined>();
 
   // Dados do cliente
   const [name, setName] = useState('');
@@ -83,6 +86,8 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao processar pagamento.');
       setCheckoutResult({ ...data, orgId: finalOrgId });
+      setCreatedOrgId(finalOrgId);
+      setShowRegistration(true);
     } catch (err: any) {
       setCheckoutError(err.message);
     } finally {
@@ -135,7 +140,8 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
   const currentPlan = planDetails[plan] || planDetails.full;
 
   return (
-    <div className="min-h-screen bg-[#F4F6F9] font-sans text-[#1A202C] antialiased">
+    <>
+      <div className="min-h-screen bg-[#F4F6F9] font-sans text-[#1A202C] antialiased">
       
       {/* Barra de Segurança no Topo (Estilo Hotmart High-Trust) */}
       <div className="bg-[#1A202C] text-[#E2E8F0] py-2 px-6 flex justify-between items-center text-[11px] font-medium tracking-wide">
@@ -632,6 +638,21 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
         </div>
       </footer>
 
-    </div>
+      </div>
+
+      {/* Formulário de cadastro após pagamento */}
+      {showRegistration && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <PostPaymentRegistration
+            orgId={createdOrgId}
+            onSuccess={() => {
+              setShowRegistration(false);
+              onBack();
+            }}
+            onCancel={() => setShowRegistration(false)}
+          />
+        </div>
+      )}
+    </>
   );
 }

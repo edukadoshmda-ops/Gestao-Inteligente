@@ -34,6 +34,7 @@ export default function CampaignCreate({ onSuccess, onCancel }: CampaignCreatePr
       }
 
       // Criar organização com status pending
+      console.log('Tentando criar organização com dados:', formData);
       const { data: orgData, error: orgError } = await supabase
         .from('organizations')
         .insert([{
@@ -44,8 +45,16 @@ export default function CampaignCreate({ onSuccess, onCancel }: CampaignCreatePr
         .select()
         .single();
 
+      console.log('Resposta do Supabase:', { orgData, orgError });
+
       if (orgError) {
         console.error('Erro ao criar organização:', orgError);
+        console.error('Detalhes do erro:', {
+          code: orgError.code,
+          message: orgError.message,
+          details: orgError.details,
+          hint: orgError.hint
+        });
         throw new Error(orgError.message || 'Erro ao criar organização no banco de dados');
       }
 

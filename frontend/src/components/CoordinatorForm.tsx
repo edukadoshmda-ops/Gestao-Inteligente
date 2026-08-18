@@ -14,6 +14,7 @@ interface CoordinatorFormProps {
 export default function CoordinatorForm({ onSave, onCancel, initialData, networkId, availableCoordinators = [] }: CoordinatorFormProps) {
   const [formData, setFormData] = useState({
     name: '',
+    email: '',
     neighborhood: '',
     city: '',
     voterId: '',
@@ -28,6 +29,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
     if (initialData) {
       setFormData({
         name: initialData.name,
+        email: (initialData as any).email || '',
         neighborhood: initialData.neighborhood,
         city: initialData.city,
         voterId: initialData.voterId || '',
@@ -103,6 +105,17 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full p-4 bg-gray-50 border-2 border-gray-100 focus:border-gov-blue outline-none uppercase text-xs font-bold tracking-wider rounded-full"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Email</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full p-4 bg-gray-50 border-2 border-gray-100 focus:border-gov-blue outline-none text-xs font-bold tracking-wider rounded-full"
+              placeholder="email@exemplo.com"
             />
           </div>
 

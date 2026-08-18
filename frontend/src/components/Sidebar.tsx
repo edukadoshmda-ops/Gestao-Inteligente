@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LayoutGrid, Users, BarChart3, LogOut, ShieldCheck,
-  ChevronRight, MessageSquare, Megaphone, Target, MapPin, Menu, X, Sparkles, CalendarCheck
+  ChevronRight, MessageSquare, Megaphone, Target, MapPin, Menu, X, Sparkles, CalendarCheck, Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Logo from './Logo';
@@ -28,6 +28,7 @@ const menuItems = [
   { id: 'report',       label: 'Faixa Etária',       icon: BarChart3   },
   { id: 'gender',       label: 'Gênero',             icon: Users       },
   { id: 'neighborhood', label: 'Bairros',            icon: MapPin      },
+  { id: 'settings',     label: 'Configurações',      icon: Settings    },
 ];
 
 function SidebarContent({
@@ -100,7 +101,7 @@ function SidebarContent({
               <div className="flex items-center gap-3">
                 <ShieldCheck className="w-4 h-4 shrink-0" />
                 <span className="text-[11px] font-black uppercase tracking-widest whitespace-nowrap">
-                  Admin Master
+                  Painel Root
                 </span>
               </div>
               {activeTab === 'admin_master' && <ChevronRight className="w-3 h-3 shrink-0" />}
