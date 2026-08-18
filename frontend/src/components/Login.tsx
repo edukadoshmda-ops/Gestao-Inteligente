@@ -64,11 +64,22 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
   useEffect(() => {
     const orgId = new URLSearchParams(window.location.search).get('org');
     if (orgId) {
+      // Validar se é um UUID válido antes de buscar
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(orgId)) {
+        console.warn('ID de organização inválido:', orgId);
+        return;
+      }
+
       supabase.from('organizations')
         .select('*')
         .eq('id', orgId)
         .single()
-        .then(({ data }) => {
+        .then(({ data, error }: { data: any, error: any }) => {
+          if (error) {
+            console.warn('Erro ao buscar organização:', error);
+            return;
+          }
           if (data) setBrandOrg(data);
         });
     } else {
@@ -127,7 +138,7 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         'edukadoshmda@gmail.com', 'presidente@campanha.com', 'governador@campanha.com',
         'senador@campanha.com', 'df@campanha.com', 'de@campanha.com', 'prefeito@campanha.com',
         'vereador@campanha.com',
-        'candidato@campanha.com', 'geral@campanha.com', 'area@campanha.com'
+        'candidato@teste.com', 'coordenador@teste.com', 'area@teste.com'
       ];
 
       if (import.meta.env.DEV && demoRoles.includes(cleanEmail) && password === '123456') {
@@ -166,6 +177,8 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         'User already registered': 'Este e-mail já está cadastrado.',
         'Password should be at least 6 characters': 'A senha deve ter pelo menos 6 caracteres.',
         'Email link is invalid or has expired': 'O link de confirmação expirou. Solicite um novo e-mail de confirmação.',
+        'email rate limit exceeded': 'Muitas tentativas de envio de e-mail. Aguarde alguns minutos antes de tentar novamente.',
+        'Rate limit exceeded': 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.',
       };
 
       const translatedError = Object.keys(errorTranslations).find(key =>
@@ -254,16 +267,15 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
           </p>
           <div className="grid grid-cols-2 gap-1.5">
             {[
-              { label: 'Admin Root', email: 'edukadoshmda@gmail.com', color: 'bg-red-100 text-red-700' },
-              { label: 'Candidato', email: 'candidato@campanha.com', color: 'bg-blue-100 text-blue-700' },
-              { label: 'Coordenação Geral', email: 'geral@campanha.com', color: 'bg-yellow-100 text-yellow-700' },
-              { label: 'Coordenadores de Área', email: 'area@campanha.com', color: 'bg-green-100 text-green-700' },
+              { label: 'Admin Root', color: 'bg-red-100 text-red-700' },
+              { label: 'Candidato', color: 'bg-blue-100 text-blue-700' },
+              { label: 'Coordenador', color: 'bg-yellow-100 text-yellow-700' },
+              { label: 'Coordenador Área', color: 'bg-green-100 text-green-700' },
             ].map((role) => (
               <button
-                key={role.email}
+                key={role.label}
                 type="button"
                 onClick={() => {
-                  setEmail(role.email);
                   setPassword('123456');
                 }}
                 className={`${role.color} py-1 px-1.5 rounded-xl font-black text-[7px] uppercase tracking-tighter hover:opacity-80 transition-opacity flex items-center justify-center`}

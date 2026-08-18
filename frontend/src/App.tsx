@@ -121,11 +121,22 @@ export default function App() {
     }
 
     if (orgId) {
+      // Validar se é um UUID válido antes de buscar
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(orgId)) {
+        console.warn('ID de organização inválido:', orgId);
+        return;
+      }
+
       supabase.from('organizations')
         .select('*')
         .eq('id', orgId)
         .single()
-        .then(({ data: org }) => {
+        .then(({ data: org, error }) => {
+          if (error) {
+            console.warn('Erro ao buscar organização:', error);
+            return;
+          }
           if (org) {
             setBrandOrg(org);
             if (org.logo_url) {
@@ -235,9 +246,9 @@ export default function App() {
       'coordenacao@campanha.com': { name: 'Coordenação Geral', role: 'general_coordination', orgName: 'Coordenação de Campanha' },
       'coordenador@campanha.com': { name: 'Coordenador de Rua', role: 'coordinator', orgName: 'Visão de Campo (Restrita)' },
       'teste@campanha.com': { name: 'Visitante', role: 'candidate', orgName: 'Ambiente de Demonstração' },
-      'candidato@campanha.com': { name: 'Candidato', role: 'candidate', orgName: 'Campanha de Teste' },
-      'geral@campanha.com': { name: 'Coordenação Geral', role: 'general_coordination', orgName: 'Coordenação de Campanha' },
-      'area@campanha.com': { name: 'Coordenador de Área', role: 'area_coordinator', orgName: 'Visão de Campo (Restrita)' },
+      'candidato@teste.com': { name: 'Candidato', role: 'candidate', orgName: 'Campanha de Teste' },
+      'coordenador@teste.com': { name: 'Coordenador', role: 'coordinator', orgName: 'Campanha de Teste' },
+      'area@teste.com': { name: 'Coordenador de Área', role: 'area_coordinator', orgName: 'Campanha de Teste' },
     };
 
     // Primeiro tenta buscar do banco de dados real (para usuários criados via AdminMaster)
@@ -256,6 +267,39 @@ export default function App() {
         }
         setLoading(false);
         return data;
+      } else if (error) {
+        console.warn('Erro ao buscar perfil:', error);
+        // Se o erro for 406 (perfil não encontrado), tentar criar perfil
+        if (error.code === 'PGRST116') {
+          console.log('Perfil não encontrado, tentando criar...');
+          try {
+            const { error: insertError } = await supabase
+              .from('profiles')
+              .insert({
+                id: userId,
+                email: userEmail,
+                full_name: userEmail.split('@')[0]
+              });
+            if (insertError) {
+              console.error('Erro ao criar perfil:', insertError);
+            } else {
+              console.log('Perfil criado com sucesso');
+              // Tentar buscar novamente
+              const { data: newData, error: newError } = await supabase
+                .from('profiles')
+                .select('*, organization:organizations(*)')
+                .eq('id', userId)
+                .single();
+              if (newData && !newError) {
+                setProfile(newData);
+                setLoading(false);
+                return newData;
+              }
+            }
+          } catch (insertErr) {
+            console.error('Erro ao criar perfil:', insertErr);
+          }
+        }
       }
     } catch (err) {
       console.log('Perfil não encontrado no banco, verificando demo roles...');

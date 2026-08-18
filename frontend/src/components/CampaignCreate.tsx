@@ -44,7 +44,10 @@ export default function CampaignCreate({ onSuccess, onCancel }: CampaignCreatePr
         .select()
         .single();
 
-      if (orgError) throw orgError;
+      if (orgError) {
+        console.error('Erro ao criar organização:', orgError);
+        throw new Error(orgError.message || 'Erro ao criar organização no banco de dados');
+      }
 
       // Enviar notificação por WhatsApp
       await sendWhatsAppNotification(orgData);

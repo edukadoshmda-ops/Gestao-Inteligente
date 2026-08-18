@@ -34,8 +34,27 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     full_name text,
     email text,
     role text DEFAULT 'coordinator' CHECK (role IN ('super_admin', 'candidate', 'general_coordination', 'area_coordinator', 'coordinator')),
+    organization_id uuid REFERENCES public.organizations(id),
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Trigger para criar perfil automaticamente quando usuário se registra
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email)
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Garantir que a coluna organization_id exista caso a tabela já estivesse lá
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
@@ -51,8 +70,12 @@ CREATE POLICY "Acesso próprio perfil" ON public.profiles FOR SELECT USING (id =
 -- Permitimos leitura pública para carregar o tema na tela de login
 DROP POLICY IF EXISTS "Acesso público às organizações" ON public.organizations;
 CREATE POLICY "Acesso público às organizações" ON public.organizations FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Criação pública de organizações" ON public.organizations;
+CREATE POLICY "Criação pública de organizações" ON public.organizations FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "Atualização para admins" ON public.organizations;
 CREATE POLICY "Atualização para admins" ON public.organizations FOR UPDATE USING (id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
+DROP POLICY IF EXISTS "Deleção para super_admin" ON public.organizations;
+CREATE POLICY "Deleção para super_admin" ON public.organizations FOR DELETE USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin'));
 
 -- 1. Criação da Tabela de Coordenadores
 CREATE TABLE IF NOT EXISTS public.coordinators (
