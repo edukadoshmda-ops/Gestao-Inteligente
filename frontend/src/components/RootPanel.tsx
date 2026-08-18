@@ -62,13 +62,9 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
       if (error) throw error;
       
       if (!data || data.length === 0) {
-        const testData: Organization[] = [
-          { id: 'teste-alpha', candidate_name: 'CANDIDATO TESTE ALPHA (EXEMPLO)', subscription_status: 'active', created_at: new Date().toISOString() },
-          { id: 'teste-beta', candidate_name: 'CAMPANHA VITORIOSA 2026 (EXEMPLO)', subscription_status: 'active', created_at: new Date().toISOString() },
-          { id: 'teste-gama', candidate_name: 'PARTIDO DA LIBERDADE (EXEMPLO)', subscription_status: 'pending', created_at: new Date().toISOString() }
-        ];
-        setOrgs(testData);
-        setStats({ total: 3, active: 2, revenue: 3000 });
+        // Não mostrar dados de teste automaticamente
+        setOrgs([]);
+        setStats({ total: 0, active: 0, revenue: 0 });
       } else {
         setOrgs(data);
         const active = data?.filter(o => o.subscription_status === 'active').length || 0;
@@ -113,8 +109,14 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
   async function handleDeleteOrg(id: string) {
     if (!confirm('Tem certeza que deseja excluir esta assinatura permanentemente?')) return;
 
-    if (id.startsWith('virtual-')) {
+    // Permite excluir dados de teste (virtual- ou teste-)
+    if (id.startsWith('virtual-') || id.startsWith('teste-')) {
       setOrgs(prev => prev.filter(o => o.id !== id));
+      alert('Campanha de teste excluída!');
+      // Recalcular stats
+      const newOrgs = orgs.filter(o => o.id !== id);
+      const active = newOrgs?.filter(o => o.subscription_status === 'active').length || 0;
+      setStats({ total: newOrgs?.length || 0, active: active, revenue: active * 1500 });
       return;
     }
 

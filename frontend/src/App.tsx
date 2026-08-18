@@ -166,7 +166,13 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      console.log('PWA install prompt detected');
     });
+
+    // Tenta detectar se já está instalado
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      console.log('App já está instalado como PWA');
+    }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
