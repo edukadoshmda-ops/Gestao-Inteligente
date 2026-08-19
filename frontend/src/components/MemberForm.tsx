@@ -11,9 +11,10 @@ interface MemberFormProps {
   initialData?: Member | null;
   coordinators?: Coordinator[];
   networkId?: string; // ID da rede para coerência
+  geminiApiKey?: string; // Chave Gemini exclusiva da campanha (multi-tenant)
 }
 
-export default function MemberForm({ onSave, onCancel, initialData, coordinators = [], networkId }: MemberFormProps) {
+export default function MemberForm({ onSave, onCancel, initialData, coordinators = [], networkId, geminiApiKey }: MemberFormProps) {
   const initialState = {
     name: '',
     email: '',
@@ -53,8 +54,89 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showSuccess, setShowSuccess] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [activeVoiceField, setActiveVoiceField] = useState<string | null>(null);
+
+  // Reconhecimento de voz dedicado para qualquer campo individual
+  const startFieldDictation = (field: string) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Seu navegador não suporta reconhecimento de voz. Tente usar o Google Chrome ou Microsoft Edge.");
+      return;
+    }
+
+    if (activeVoiceField === field) {
+      setActiveVoiceField(null);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'pt-BR';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      setActiveVoiceField(field);
+    };
+
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      if (transcript.trim()) {
+        let finalVal = transcript.trim();
+        if (field === 'phone') {
+          finalVal = maskPhone(finalVal);
+        } else if (field === 'name') {
+          finalVal = finalVal.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+        } else if (field === 'email') {
+          finalVal = finalVal.toLowerCase().replace(/\s+arroba\s+/g, '@').replace(/\s+ponto\s+/g, '.').replace(/\s+/g, '');
+        } else if (field === 'voterId' || field === 'voterSection' || field === 'voterZone') {
+          finalVal = finalVal.replace(/\D/g, '');
+        } else if (field === 'birthDate') {
+          const dateMatch = finalVal.match(/(\d{1,2})[\/\s\-](\d{1,2})[\/\s\-](\d{2,4})/);
+          if (dateMatch) {
+            const day = dateMatch[1].padStart(2, '0');
+            const month = dateMatch[2].padStart(2, '0');
+            const year = dateMatch[3].length === 2 ? '20' + dateMatch[3] : dateMatch[3];
+            finalVal = `${year}-${month}-${day}`;
+          }
+        } else if (field === 'gender') {
+          const lower = finalVal.toLowerCase();
+          if (lower.includes('fem') || lower.includes('mulher')) finalVal = 'Feminino';
+          else if (lower.includes('masc') || lower.includes('homem')) finalVal = 'Masculino';
+          else finalVal = 'Outro';
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          [field]: finalVal
+        }));
+
+        if (errors[field]) {
+          setErrors(prev => {
+            const copy = { ...prev };
+            delete copy[field];
+            return copy;
+          });
+        }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn("Speech recognition error:", event.error);
+      setActiveVoiceField(null);
+    };
+
+    recognition.onend = () => {
+      setActiveVoiceField(null);
+    };
+
+    recognition.start();
+  };
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -87,7 +169,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
       return;
     }
 
-    if (isListening) return; // Prevent multiple instances
+    if (isListening) return;
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'pt-BR';
@@ -124,7 +206,6 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
 
     recognition.start();
     
-    // Auto stop after 15 seconds to prevent keeping mic on forever
     setTimeout(() => {
       try { recognition.stop(); } catch(e) {}
     }, 15000);
@@ -161,7 +242,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
       if (finalTranscript.trim()) {
         setIsMagicProcessing(true);
         try {
-          const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
+          const apiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
           if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
             alert("A Chave da API do Gemini não está configurada para processar a IA.");
             return;
@@ -215,39 +296,125 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
 
     recognition.start();
     
-    // Auto stop after 15 seconds
     setTimeout(() => {
       try { recognition.stop(); } catch(e) {}
     }, 15000);
   };
 
+  // Leitura inteligente de foto do Título de Eleitor (Dual Engine: Gemini Vision + Tesseract)
   const handleScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsScanning(true);
+    setScanFeedback('Analisando imagem do Título de Eleitor...');
+
     try {
-      const worker = await createWorker('por');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
+      let extractedData: any = null;
+      const apiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
 
-      // Simple regex extraction for Brazilian Voter Card
-      const nameMatch = text.match(/NOME\s*[:\s]*([^\n]+)/i);
-      const voterIdMatch = text.match(/T[ÍI]TULO\s*DE\s*ELEITOR\s*[:\s]*(\d{4}\s*\d{4}\s*\d{4})/i) || text.match(/(\d{4}\s*\d{4}\s*\d{4})/);
-      const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{4})/i);
-      const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{3})/i);
+      // 1. Tenta Gemini Vision primeiro se disponível
+      if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
+        try {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve) => {
+            reader.onload = () => {
+              const res = reader.result as string;
+              const base64 = res.split(',')[1];
+              resolve(base64);
+            };
+            reader.readAsDataURL(file);
+          });
+          const base64Data = await base64Promise;
 
+          const prompt = `Analise a foto deste documento brasileiro (Título de Eleitor, e-Título, RG ou CNH).
+Extraia os dados com precisão cirúrgica e retorne APENAS um JSON puro sem markdown ou crases:
+{
+  "name": "Nome Completo do Eleitor",
+  "voterId": "Número do Título de Eleitor (12 dígitos numéricos)",
+  "voterZone": "Zona Eleitoral (3 dígitos numéricos)",
+  "voterSection": "Seção Eleitoral (4 dígitos numéricos)",
+  "birthDate": "YYYY-MM-DD",
+  "neighborhood": "Bairro ou Município",
+  "gender": "Masculino" ou "Feminino"
+}`;
+
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: file.type || 'image/jpeg', data: base64Data } }
+                ]
+              }]
+            })
+          });
+
+          if (response.ok) {
+            const json = await response.json();
+            const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            extractedData = JSON.parse(cleanJson);
+          }
+        } catch (geminiErr) {
+          console.warn("Gemini Vision OCR fallback:", geminiErr);
+        }
+      }
+
+      // 2. Fallback para Tesseract Local se Gemini não finalizou
+      if (!extractedData || !extractedData.name) {
+        setScanFeedback('Processando OCR de alta precisão...');
+        const worker = await createWorker('por');
+        const { data: { text } } = await worker.recognize(file);
+        await worker.terminate();
+
+        const nameMatch = text.match(/NOME(?:\s*DO\s*ELEITOR)?\s*[:\s]*([^\n\r]+)/i) ||
+                          text.match(/ELEITOR\s*[:\s]*([^\n\r]+)/i);
+        const voterIdMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4})/i) ||
+                             text.match(/INSCRI[ÇC][ÃA]O\s*[:\s]*(\d[\d\s]+)/i) ||
+                             text.match(/T[ÍI]TULO\s*[:\s]*(\d[\d\s]+)/i);
+        const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{1,4})/i);
+        const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{1,3})/i);
+        const birthMatch = text.match(/DATA\s*DE\s*NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
+                           text.match(/NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
+                           text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
+        const cityMatch = text.match(/MUNIC[ÍI]PIO\s*[:\s]*([^\n\r\/\-]+)/i);
+
+        let formattedBirth = '';
+        if (birthMatch) {
+          formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+        }
+
+        extractedData = {
+          name: nameMatch ? nameMatch[1].trim() : '',
+          voterId: voterIdMatch ? voterIdMatch[1].replace(/\D/g, '').slice(0, 12) : '',
+          voterSection: sectionMatch ? sectionMatch[1].padStart(4, '0') : '',
+          voterZone: zoneMatch ? zoneMatch[1].padStart(3, '0') : '',
+          birthDate: formattedBirth,
+          neighborhood: cityMatch ? cityMatch[1].trim() : ''
+        };
+      }
+
+      // Preenche os dados automaticamente
       setFormData(prev => ({
         ...prev,
-        name: nameMatch ? nameMatch[1].trim() : prev.name,
-        voterId: voterIdMatch ? voterIdMatch[1].replace(/\s/g, '') : prev.voterId,
-        voterSection: sectionMatch ? sectionMatch[1] : prev.voterSection,
-        voterZone: zoneMatch ? zoneMatch[1] : prev.voterZone,
+        name: extractedData.name ? extractedData.name.trim() : prev.name,
+        voterId: extractedData.voterId ? extractedData.voterId.replace(/\D/g, '') : prev.voterId,
+        voterSection: extractedData.voterSection ? extractedData.voterSection.replace(/\D/g, '') : prev.voterSection,
+        voterZone: extractedData.voterZone ? extractedData.voterZone.replace(/\D/g, '') : prev.voterZone,
+        birthDate: extractedData.birthDate || prev.birthDate,
+        neighborhood: extractedData.neighborhood ? extractedData.neighborhood.trim() : prev.neighborhood,
+        gender: extractedData.gender || prev.gender,
       }));
-      
+
+      setScanFeedback('✨ Dados do Título preenchidos com sucesso!');
+      setTimeout(() => setScanFeedback(null), 5000);
+
     } catch (error) {
       console.error('Erro no OCR:', error);
-      alert('Não foi possível ler os dados da imagem. Tente uma foto mais nítida.');
+      alert('Não foi possível ler os dados da imagem. Certifique-se de que a foto está bem iluminada e nítida.');
     } finally {
       setIsScanning(false);
       e.target.value = '';
@@ -316,7 +483,6 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
       const dataToSave: Omit<Member, 'id' | 'createdAt'> = {
         ...formData,
         age: calculateAge(formData.birthDate),
-        // Garante que o network_id seja incluído para validação de permissões
         network_id: networkId,
       };
 
@@ -379,6 +545,18 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
               </div>
             </motion.div>
           )}
+
+          {scanFeedback && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-blue-50 border-2 border-gov-blue text-gov-blue p-4 rounded-2xl shadow-md flex items-center gap-3"
+            >
+              <Sparkles className="w-5 h-5 text-gov-yellow shrink-0 animate-spin-slow" />
+              <p className="text-xs font-black uppercase tracking-wider">{scanFeedback}</p>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -403,7 +581,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
             </p>
           </div>
 
-          <div className="bg-gray-50 p-6 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-4 group hover:border-gov-yellow transition-all rounded-xl">
+          <div className="bg-gray-50 p-6 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-4 group hover:border-gov-yellow transition-all rounded-2xl">
             <input
               type="file"
               id="voter-card-scan"
@@ -423,20 +601,21 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
               ) : (
                 <Camera className="w-5 h-5 text-gov-blue" />
               )}
-              {isScanning ? 'Processando Imagem...' : 'Escanear Título (Foto)'}
+              {isScanning ? 'Lendo Título de Eleitor...' : 'Escanear Foto do Título'}
             </button>
             <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest text-center px-4">
-              Tire uma foto nítida do Título de Eleitor para preencher automaticamente.
+              Carregue ou fotografe o Título de Eleitor para preencher Nome, Título, Seção e Data.
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-12 gap-y-6 gap-x-6">
+          {/* Nome Completo */}
           <div className="col-span-12 md:col-span-8">
             <label className={`text-[10px] font-black uppercase tracking-widest mb-1.5 block ${errors.name ? 'text-red-500' : 'text-gov-blue'}`}>
               Nome Completo
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Users className={`h-4 w-4 ${errors.name ? 'text-red-300' : 'text-gov-blue/30 group-focus-within:text-gov-blue'} transition-colors`} />
               </div>
@@ -451,20 +630,33 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                     return rest;
                   });
                 }}
-                className={`block w-full pl-12 pr-4 py-3.5 border-2 rounded-full focus:bg-white outline-none transition-all font-medium placeholder:text-gray-300 ${
+                className={`block w-full pl-12 pr-12 py-3.5 border-2 rounded-2xl focus:bg-white outline-none transition-all font-medium placeholder:text-gray-300 ${
                   errors.name ? 'border-red-200 bg-red-50 focus:border-red-500' : 'border-gray-100 focus:border-gov-yellow bg-gray-50'
                 }`}
                 placeholder="Digite o nome completo"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('name')}
+                  title={activeVoiceField === 'name' ? 'Ouvindo... Fale o nome' : 'Preencher Nome por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'name' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             {errors.name && <p className="text-[10px] font-bold text-red-500 mt-1 uppercase tracking-tighter italic">{errors.name}</p>}
           </div>
 
+          {/* Telefone */}
           <div className="col-span-12 md:col-span-4">
             <label className={`text-[10px] font-black uppercase tracking-widest mb-1.5 block ${errors.phone ? 'text-red-500' : 'text-gov-blue'}`}>
               Telefone
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Phone className={`h-4 w-4 ${errors.phone ? 'text-red-300' : 'text-gov-blue/30 group-focus-within:text-gov-blue'} transition-colors`} />
               </div>
@@ -474,20 +666,33 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 maxLength={15}
                 value={formData.phone}
                 onChange={handlePhoneChange}
-                className={`block w-full pl-12 pr-4 py-3.5 border-2 rounded-full focus:bg-white outline-none transition-all font-medium placeholder:text-gray-300 ${
+                className={`block w-full pl-12 pr-12 py-3.5 border-2 rounded-2xl focus:bg-white outline-none transition-all font-medium placeholder:text-gray-300 ${
                   errors.phone ? 'border-red-200 bg-red-50 focus:border-red-500' : 'border-gray-100 focus:border-gov-yellow bg-gray-50'
                 }`}
                 placeholder="(00) 00000-0000"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('phone')}
+                  title={activeVoiceField === 'phone' ? 'Ouvindo... Fale o telefone' : 'Preencher Telefone por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'phone' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             {errors.phone && <p className="text-[10px] font-bold text-red-500 mt-1 uppercase tracking-tighter italic">{errors.phone}</p>}
           </div>
 
+          {/* E-mail */}
           <div className="col-span-12 md:col-span-8">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               E-mail
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Mail className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -496,16 +701,30 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
+                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
                 placeholder="email@exemplo.com"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('email')}
+                  title={activeVoiceField === 'email' ? 'Ouvindo... Fale o email' : 'Preencher E-mail por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'email' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
+
+          {/* Bairro */}
           <div className="col-span-12 md:col-span-8">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               Bairro
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <MapPin className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -514,17 +733,30 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 type="text"
                 value={formData.neighborhood}
                 onChange={(e) => setFormData({ ...formData, neighborhood: e.target.value })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
+                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
                 placeholder="Ex: Centro, Bairro Sul, etc."
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('neighborhood')}
+                  title={activeVoiceField === 'neighborhood' ? 'Ouvindo... Fale o bairro' : 'Preencher Bairro por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'neighborhood' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Data de Nascimento */}
           <div className="col-span-12 md:col-span-4">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               Data de Nascimento
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Calendar className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -533,16 +765,38 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 type="date"
                 value={formData.birthDate}
                 onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium"
+                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('birthDate')}
+                  title={activeVoiceField === 'birthDate' ? 'Ouvindo... Diga dia, mês e ano' : 'Preencher Data por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'birthDate' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Título de Eleitor (com Foto e Voz) */}
           <div className="col-span-12 md:col-span-6">
-            <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
-              Título de Eleitor
-            </label>
-            <div className="relative group">
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest block">
+                Título de Eleitor
+              </label>
+              <button
+                type="button"
+                onClick={() => document.getElementById('voter-card-scan')?.click()}
+                className="text-[9px] font-black text-gov-blue hover:text-blue-700 uppercase flex items-center gap-1 bg-gov-blue/10 px-2 py-0.5 rounded-lg transition-all"
+              >
+                <Camera className="w-3 h-3" /> Auto-preencher por Foto
+              </button>
+            </div>
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Hash className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -551,17 +805,39 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 maxLength={12}
                 value={formData.voterId}
                 onChange={(e) => setFormData({ ...formData, voterId: e.target.value.replace(/\D/g, '') })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
+                className="block w-full pl-12 pr-20 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
                 placeholder="0000 0000 0000"
               />
+              <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('voter-card-scan')?.click()}
+                  title="Tirar foto do Título para ler automaticamente"
+                  className="p-1.5 bg-gov-blue text-white hover:bg-blue-800 rounded-lg transition-all flex items-center gap-1 text-[9px] font-black uppercase"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Foto</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('voterId')}
+                  title={activeVoiceField === 'voterId' ? 'Ouvindo... Fale os números do título' : 'Preencher Título por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'voterId' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Seção */}
           <div className="col-span-12 md:col-span-3">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               Seção
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Hash className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -570,17 +846,30 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 maxLength={4}
                 value={formData.voterSection}
                 onChange={(e) => setFormData({ ...formData, voterSection: e.target.value.replace(/\D/g, '') })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
+                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
                 placeholder="0000"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('voterSection')}
+                  title={activeVoiceField === 'voterSection' ? 'Ouvindo... Fale o número da seção' : 'Preencher Seção por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'voterSection' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Zona */}
           <div className="col-span-12 md:col-span-3">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               Zona
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Hash className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -589,17 +878,30 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 maxLength={3}
                 value={formData.voterZone}
                 onChange={(e) => setFormData({ ...formData, voterZone: e.target.value.replace(/\D/g, '') })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
+                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"
                 placeholder="000"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('voterZone')}
+                  title={activeVoiceField === 'voterZone' ? 'Ouvindo... Fale o número da zona' : 'Preencher Zona por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'voterZone' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Gênero */}
           <div className="col-span-12 md:col-span-6">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               Gênero
             </label>
-            <div className="relative group">
+            <div className="relative group flex items-center">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Users className="h-4 w-4 text-gov-blue/30 group-focus-within:text-gov-blue transition-colors" />
               </div>
@@ -607,15 +909,29 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 required
                 value={formData.gender}
                 onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium appearance-none cursor-pointer"
+                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium appearance-none cursor-pointer"
               >
                 <option value="">Selecione...</option>
                 <option value="Masculino">Masculino</option>
                 <option value="Feminino">Feminino</option>
                 <option value="Outro">Outro</option>
               </select>
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => startFieldDictation('gender')}
+                  title={activeVoiceField === 'gender' ? 'Ouvindo... Diga Masculino ou Feminino' : 'Preencher Gênero por voz'}
+                  className={`p-2 rounded-full transition-all ${
+                    activeVoiceField === 'gender' ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-gov-blue hover:bg-gray-200/50'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
+
+          {/* Coordenador */}
           <div className="col-span-12 md:col-span-6">
             <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest mb-1.5 block">
               Coordenador Responsável
@@ -627,7 +943,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
               <select
                 value={formData.coordinatorId}
                 onChange={(e) => setFormData({ ...formData, coordinatorId: e.target.value })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium appearance-none cursor-pointer"
+                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium appearance-none cursor-pointer"
               >
                 <option value="">Selecione o Coordenador...</option>
                 {coordinators.map(c => (
@@ -647,7 +963,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 type="button"
                 onClick={handleGetLocation}
                 disabled={isGettingLocation}
-                className={`flex-1 flex items-center justify-center gap-2 py-3.5 border-2 border-gov-blue bg-white font-black uppercase text-[10px] tracking-widest text-gov-blue hover:bg-gov-blue hover:text-white transition-all rounded-full ${isGettingLocation ? 'opacity-50' : ''}`}
+                className={`flex-1 flex items-center justify-center gap-2 py-3.5 border-2 border-gov-blue bg-white font-black uppercase text-[10px] tracking-widest text-gov-blue hover:bg-gov-blue hover:text-white transition-all rounded-2xl ${isGettingLocation ? 'opacity-50' : ''}`}
               >
                 {isGettingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : <Navigation className="w-4 h-4" />}
                 {formData.latitude && formData.longitude ? 'GPS Capturado' : 'Capturar Meu GPS'}
@@ -661,7 +977,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
             </div>
           </div>
 
-          {/* Audio to Text Observations */}
+          {/* Observações de Campo */}
           <div className="col-span-12">
             <label className="flex items-center justify-between mb-1.5">
               <span className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Observações de Campo</span>
@@ -684,7 +1000,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
                 rows={3}
                 value={formData.observations}
                 onChange={(e) => setFormData({ ...formData, observations: e.target.value })}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300 resize-none"
+                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300 resize-none"
                 placeholder={isListening ? "Fale agora que a IA vai digitar tudo..." : "Anotações sobre a visita ao eleitor, demandas solicitadas, etc..."}
               />
             </div>

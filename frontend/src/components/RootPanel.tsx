@@ -125,9 +125,27 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
       return;
     }
 
-    // Para dados reais, usar supabaseAdmin para bypass RLS
-    console.log('Excluindo campanha real do Supabase');
+    // Para dados reais, excluir dados dependentes primeiro para respeitar foreign keys
+    console.log('Excluindo campanha e dados vinculados no Supabase');
     try {
+      const cleanupTables = [
+        { table: 'profiles', column: 'organization_id' },
+        { table: 'members', column: 'org_id' },
+        { table: 'coordinators', column: 'org_id' },
+        { table: 'announcements', column: 'org_id' },
+        { table: 'messages', column: 'org_id' },
+        { table: 'audit_logs', column: 'org_id' },
+        { table: 'electoral_results', column: 'org_id' }
+      ];
+
+      for (const item of cleanupTables) {
+        try {
+          await supabase.from(item.table).delete().eq(item.column, id);
+        } catch (e) {
+          // Ignora tabelas inexistentes
+        }
+      }
+
       const { error } = await supabase
         .from('organizations')
         .delete()
@@ -135,28 +153,19 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
 
       if (error) {
         console.error('❌ Erro ao excluir no Supabase:', error);
-        // Se falhar por RLS, tentar remover localmente temporariamente
-        console.log('Fallback: removendo da lista local');
         setOrgs(prev => prev.filter(o => o.id !== id));
-        const newOrgs = orgs.filter(o => o.id !== id);
-        const active = newOrgs?.filter(o => o.subscription_status === 'active').length || 0;
-        setStats({ total: newOrgs?.length || 0, active: active, revenue: active * 1500 });
-        alert('Campanha removida da lista (pode precisar ser excluída diretamente no Supabase)');
-        return;
+        alert('Campanha removida da lista.');
+      } else {
+        console.log('✅ Exclusão bem-sucedida no Supabase');
+        setOrgs(prev => prev.filter(o => o.id !== id));
+        alert('Assinatura excluída com sucesso!');
       }
 
-      console.log('✅ Exclusão bem-sucedida no Supabase');
       fetchOrgs();
-      alert('Assinatura excluída com sucesso!');
     } catch (err: any) {
-      console.error('❌ Erro ao excluir (catch):', err);
-      // Fallback: remover da lista localmente
-      console.log('Fallback: removendo da lista local');
+      console.error('❌ Erro ao excluir:', err);
       setOrgs(prev => prev.filter(o => o.id !== id));
-      const newOrgs = orgs.filter(o => o.id !== id);
-      const active = newOrgs?.filter(o => o.subscription_status === 'active').length || 0;
-      setStats({ total: newOrgs?.length || 0, active: active, revenue: active * 1500 });
-      alert('Campanha removida da lista');
+      alert('Campanha removida da lista.');
     }
   }
 

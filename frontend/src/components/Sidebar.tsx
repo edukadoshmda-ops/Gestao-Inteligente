@@ -133,7 +133,7 @@ function SidebarContent({
       </div>
 
       {/* Versão */}
-      <div className="px-6 py-4 text-[9px] text-white/30 uppercase tracking-widest font-bold border-t border-white/10 shrink-0 rounded-2xl">
+      <div className="px-6 py-4 text-[9px] text-white/30 uppercase tracking-widest font-bold border-t border-white/10 shrink-0">
         v2.5.0-saas
       </div>
     </div>
@@ -150,7 +150,7 @@ export default function Sidebar(props: SidebarProps) {
 
   return (
     <>
-      <aside className="hidden lg:flex flex-col w-64 h-screen bg-gov-blue text-white border-r border-white/10 sticky top-0 shrink-0 z-50 rounded-2xl">
+      <aside className="hidden lg:flex flex-col w-64 h-screen bg-gov-blue text-white border-r border-white/10 sticky top-0 shrink-0 z-50">
         <SidebarContent {...props} />
       </aside>
 
@@ -181,7 +181,7 @@ export default function Sidebar(props: SidebarProps) {
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="lg:hidden fixed top-0 left-0 bottom-0 z-[500] w-72 bg-gov-blue text-white border-r border-white/10 shadow-2xl flex flex-col rounded-2xl"
+              className="lg:hidden fixed top-0 left-0 bottom-0 z-[500] w-72 bg-gov-blue text-white border-r border-white/10 shadow-2xl flex flex-col"
             >
               <button
                 onClick={() => setOpen(false)}

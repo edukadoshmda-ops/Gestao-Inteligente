@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Member, Organization } from '../types';
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
-import { Save, Phone, Users, Hash, Mail, CheckCircle, Camera, Loader2, ArrowLeft } from 'lucide-react';
+import { Save, Phone, Users, Hash, Mail, CheckCircle, Camera, Loader2, ArrowLeft, Mic, Sparkles } from 'lucide-react';
 import { createWorker } from 'tesseract.js';
 import { motion, AnimatePresence } from 'motion/react';
 import Logo from './Logo';
@@ -31,6 +31,8 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [activeVoiceField, setActiveVoiceField] = useState<string | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
 
   // Carregar dados da Organização via URL
   useEffect(() => {
@@ -51,6 +53,76 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
       setOrgLoading(false);
     }
   }, []);
+
+  const startFieldDictation = (field: string) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Seu navegador não suporta reconhecimento de voz. Tente usar o Google Chrome ou Microsoft Edge.");
+      return;
+    }
+
+    if (activeVoiceField === field) {
+      setActiveVoiceField(null);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'pt-BR';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      setActiveVoiceField(field);
+    };
+
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      if (transcript.trim()) {
+        let finalVal = transcript.trim();
+        if (field === 'phone') {
+          finalVal = maskPhone(finalVal);
+        } else if (field === 'name') {
+          finalVal = finalVal.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+        } else if (field === 'email') {
+          finalVal = finalVal.toLowerCase().replace(/\s+arroba\s+/g, '@').replace(/\s+ponto\s+/g, '.').replace(/\s+/g, '');
+        } else if (field === 'voterId' || field === 'voterSection' || field === 'voterZone') {
+          finalVal = finalVal.replace(/\D/g, '');
+        } else if (field === 'birthDate') {
+          const dateMatch = finalVal.match(/(\d{1,2})[\/\s\-](\d{1,2})[\/\s\-](\d{2,4})/);
+          if (dateMatch) {
+            const day = dateMatch[1].padStart(2, '0');
+            const month = dateMatch[2].padStart(2, '0');
+            const year = dateMatch[3].length === 2 ? '20' + dateMatch[3] : dateMatch[3];
+            finalVal = `${year}-${month}-${day}`;
+          }
+        } else if (field === 'gender') {
+          const lower = finalVal.toLowerCase();
+          if (lower.includes('fem') || lower.includes('mulher')) finalVal = 'Feminino';
+          else if (lower.includes('masc') || lower.includes('homem')) finalVal = 'Masculino';
+          else finalVal = 'Outro';
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          [field]: finalVal
+        }));
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn("Speech recognition error:", event.error);
+      setActiveVoiceField(null);
+    };
+
+    recognition.onend = () => {
+      setActiveVoiceField(null);
+    };
+
+    recognition.start();
+  };
 
   const validatePhone = (phone: string) => {
     const digits = phone.replace(/\D/g, '');
@@ -75,23 +147,95 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     if (!file) return;
 
     setIsScanning(true);
+    setScanFeedback('Analisando documento...');
     try {
-      const worker = await createWorker('por');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
+      let extractedData: any = null;
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
 
-      const nameMatch = text.match(/NOME\s*[:\s]*([^\n]+)/i);
-      const voterIdMatch = text.match(/T[ÍI]TULO\s*DE\s*ELEITOR\s*[:\s]*(\d{4}\s*\d{4}\s*\d{4})/i) || text.match(/(\d{4}\s*\d{4}\s*\d{4})/);
-      const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{4})/i);
-      const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{3})/i);
+      if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
+        try {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve) => {
+            reader.onload = () => {
+              const res = reader.result as string;
+              const base64 = res.split(',')[1];
+              resolve(base64);
+            };
+            reader.readAsDataURL(file);
+          });
+          const base64Data = await base64Promise;
+
+          const prompt = `Analise a foto deste documento de eleitor brasileiro (Título, RG, CNH). Retorne APENAS um JSON puro:
+{
+  "name": "Nome Completo",
+  "voterId": "12 dígitos do título",
+  "voterZone": "Zona",
+  "voterSection": "Seção",
+  "birthDate": "YYYY-MM-DD",
+  "gender": "Masculino" ou "Feminino"
+}`;
+
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: file.type || 'image/jpeg', data: base64Data } }
+                ]
+              }]
+            })
+          });
+
+          if (response.ok) {
+            const json = await response.json();
+            const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            extractedData = JSON.parse(cleanJson);
+          }
+        } catch (geminiErr) {
+          console.warn("Fallback to Tesseract:", geminiErr);
+        }
+      }
+
+      if (!extractedData || !extractedData.name) {
+        const worker = await createWorker('por');
+        const { data: { text } } = await worker.recognize(file);
+        await worker.terminate();
+
+        const nameMatch = text.match(/NOME\s*[:\s]*([^\n]+)/i);
+        const voterIdMatch = text.match(/T[ÍI]TULO\s*DE\s*ELEITOR\s*[:\s]*(\d{4}\s*\d{4}\s*\d{4})/i) || text.match(/(\d{4}\s*\d{4}\s*\d{4})/);
+        const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{4})/i);
+        const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{3})/i);
+        const birthMatch = text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
+
+        let formattedBirth = '';
+        if (birthMatch) {
+          formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+        }
+
+        extractedData = {
+          name: nameMatch ? nameMatch[1].trim() : '',
+          voterId: voterIdMatch ? voterIdMatch[1].replace(/\s/g, '').slice(0, 12) : '',
+          voterSection: sectionMatch ? sectionMatch[1] : '',
+          voterZone: zoneMatch ? zoneMatch[1] : '',
+          birthDate: formattedBirth
+        };
+      }
 
       setFormData(prev => ({
         ...prev,
-        name: nameMatch ? nameMatch[1].trim() : prev.name,
-        voterId: voterIdMatch ? voterIdMatch[1].replace(/\s/g, '') : prev.voterId,
-        voterSection: sectionMatch ? sectionMatch[1] : prev.voterSection,
-        voterZone: zoneMatch ? zoneMatch[1] : prev.voterZone,
+        name: extractedData.name || prev.name,
+        voterId: extractedData.voterId || prev.voterId,
+        voterSection: extractedData.voterSection || prev.voterSection,
+        voterZone: extractedData.voterZone || prev.voterZone,
+        birthDate: extractedData.birthDate || prev.birthDate,
+        gender: extractedData.gender || prev.gender,
       }));
+
+      setScanFeedback('✨ Dados preenchidos com sucesso!');
+      setTimeout(() => setScanFeedback(null), 4000);
       
     } catch (error) {
       console.error('Erro no OCR:', error);
@@ -130,10 +274,9 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
       age: calculateAge(formData.birthDate),
       id: crypto.randomUUID().split('-')[0],
       createdAt: new Date().toISOString(),
-      org_id: org?.id // Vinculo automático com a campanha
+      org_id: org?.id
     };
 
-    // Salvar no Supabase (Multi-tenant)
     if (supabase) {
       const { error } = await supabase.from('members').insert([newMember]);
       if (error) {
@@ -142,7 +285,6 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
         return;
       }
     } else {
-      // Fallback para Offline (IndexedDB)
       const currentMembers = await db.getMembers();
       await db.saveMembers([newMember, ...currentMembers]);
     }
@@ -221,8 +363,22 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
-          <div className="bg-gray-50 p-6 border-2 border-dashed border-gov-blue/20 flex flex-col items-center justify-center gap-4 text-center rounded-xl">
-             <p className="text-[9px] font-black uppercase text-gov-blue/50 tracking-widest">Atalhão: Fotografe seu título para preencher sozinho</p>
+          <AnimatePresence>
+            {scanFeedback && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-blue-50 border-2 border-gov-blue text-gov-blue p-4 rounded-2xl shadow-md flex items-center gap-3"
+              >
+                <Sparkles className="w-5 h-5 text-gov-yellow shrink-0 animate-spin-slow" />
+                <p className="text-xs font-black uppercase tracking-wider">{scanFeedback}</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="bg-gray-50 p-6 border-2 border-dashed border-gov-blue/20 flex flex-col items-center justify-center gap-4 text-center rounded-2xl">
+            <p className="text-[9px] font-black uppercase text-gov-blue/50 tracking-widest">Atalho: Fotografe seu título para preencher automaticamente</p>
             <input type="file" id="public-scan" accept="image/*" capture="environment" onChange={handleScan} className="hidden" />
             <button
               type="button"
@@ -231,57 +387,115 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
               className="flex items-center gap-3 px-6 py-3 bg-white border-2 border-gov-blue font-black uppercase text-[10px] tracking-widest hover:bg-gov-blue hover:text-white transition-all shadow-md rounded-full"
             >
               {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4 text-gov-yellow" />}
-              {isScanning ? 'Lendo dados...' : 'Escanear Título'}
+              {isScanning ? 'Lendo dados do Título...' : 'Escanear Foto do Título'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Nome Completo */}
             <div className="md:col-span-2">
               <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Nome Completo</label>
-              <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" />
+              <div className="relative flex items-center">
+                <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="Digite seu nome completo" />
+                <button type="button" onClick={() => startFieldDictation('name')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'name' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {/* Telefone */}
             <div>
               <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Telefone (WhatsApp)</label>
-              <input required value={formData.phone} onChange={handlePhoneChange} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-full" />
+              <div className="relative flex items-center">
+                <input required value={formData.phone} onChange={handlePhoneChange} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="(00) 00000-0000" />
+                <button type="button" onClick={() => startFieldDictation('phone')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'phone' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {/* Data de Nascimento */}
             <div>
               <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Data de Nascimento</label>
-              <input required type="date" value={formData.birthDate} onChange={e => setFormData({...formData, birthDate: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-full" />
+              <div className="relative flex items-center">
+                <input required type="date" value={formData.birthDate} onChange={e => setFormData({...formData, birthDate: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" />
+                <button type="button" onClick={() => startFieldDictation('birthDate')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'birthDate' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {/* E-mail */}
             <div>
               <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">E-mail</label>
-              <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" />
+              <div className="relative flex items-center">
+                <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="email@exemplo.com" />
+                <button type="button" onClick={() => startFieldDictation('email')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'email' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {/* Gênero */}
             <div>
               <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Gênero</label>
-              <select required value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm appearance-none rounded-full">
-                <option value="">Selecione...</option>
-                <option value="Masculino">Masculino</option>
-                <option value="Feminino">Feminino</option>
-                <option value="Outro">Outro</option>
-              </select>
+              <div className="relative flex items-center">
+                <select required value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm appearance-none rounded-2xl">
+                  <option value="">Selecione...</option>
+                  <option value="Masculino">Masculino</option>
+                  <option value="Feminino">Feminino</option>
+                  <option value="Outro">Outro</option>
+                </select>
+                <button type="button" onClick={() => startFieldDictation('gender')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'gender' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-            <div>
+
+            {/* Título de Eleitor */}
+            <div className="md:col-span-2">
               <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Título de Eleitor</label>
-              <input value={formData.voterId} onChange={e => setFormData({...formData, voterId: e.target.value.replace(/\D/g, '')})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-full" />
+              <div className="relative flex items-center">
+                <input value={formData.voterId} onChange={e => setFormData({...formData, voterId: e.target.value.replace(/\D/g, '')})} className="w-full pl-4 pr-24 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="0000 0000 0000" />
+                <div className="absolute right-2.5 flex items-center gap-1">
+                  <button type="button" onClick={() => document.getElementById('public-scan')?.click()} title="Ler Título por Foto" className="p-1.5 bg-gov-blue text-white rounded-lg flex items-center gap-1 text-[9px] font-bold">
+                    <Camera className="w-3.5 h-3.5" /> Foto
+                  </button>
+                  <button type="button" onClick={() => startFieldDictation('voterId')} className={`p-1.5 rounded-full ${activeVoiceField === 'voterId' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                    <Mic className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            {/* Seção e Zona */}
+            <div className="grid grid-cols-2 gap-4 md:col-span-2">
               <div>
                 <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Seção</label>
-                <input value={formData.voterSection} onChange={e => setFormData({...formData, voterSection: e.target.value.replace(/\D/g, '')})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-full" />
+                <div className="relative flex items-center">
+                  <input value={formData.voterSection} onChange={e => setFormData({...formData, voterSection: e.target.value.replace(/\D/g, '')})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="0000" />
+                  <button type="button" onClick={() => startFieldDictation('voterSection')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'voterSection' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                    <Mic className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Zona</label>
-                <input value={formData.voterZone} onChange={e => setFormData({...formData, voterZone: e.target.value.replace(/\D/g, '')})} className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-full" />
+                <div className="relative flex items-center">
+                  <input value={formData.voterZone} onChange={e => setFormData({...formData, voterZone: e.target.value.replace(/\D/g, '')})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="000" />
+                  <button type="button" onClick={() => startFieldDictation('voterZone')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'voterZone' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                    <Mic className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <button type="submit" className="w-full py-4 bg-gov-yellow text-gov-blue font-black uppercase text-xs tracking-widest shadow-md hover:bg-yellow-300 transition-all border-b-4 border-gov-blue/20 rounded-full">
+          <button type="submit" className="w-full py-4 bg-gov-yellow text-gov-blue font-black uppercase text-xs tracking-widest shadow-md hover:bg-yellow-300 transition-all border-b-4 border-gov-blue/20 rounded-2xl">
             Confirmar Apoio
           </button>
         </form>
-        </motion.div>
-      </div>
-    );
-  }
+      </motion.div>
+    </div>
+  );
+}

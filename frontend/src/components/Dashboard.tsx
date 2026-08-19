@@ -7,7 +7,7 @@ import CoordinatorForm from './CoordinatorForm';
 import CoordinatorList from './CoordinatorList';
 import Sidebar from './Sidebar';
 import Toast from './Toast';
-import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles } from 'lucide-react';
+import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
@@ -31,9 +31,11 @@ interface DashboardProps {
   profile: Profile;
   onLogout: () => void;
   onShowSales?: () => void;
+  onToggleRoot?: () => void;
+  isRootView?: boolean;
 }
 
-export default function Dashboard({ username, organization, profile, onLogout, onShowSales }: DashboardProps) {
+export default function Dashboard({ username, organization, profile, onLogout, onShowSales, onToggleRoot }: DashboardProps) {
   const [members, setMembers] = useState<Member[]>([]);
   const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -571,6 +573,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 initialData={selectedMember}
                 coordinators={coordinators}
                 networkId={networkFilter ? profile.id : undefined}
+                geminiApiKey={organization?.gemini_api_key}
               />
             ) : isAddingCoordinator ? (
               <CoordinatorForm
@@ -604,6 +607,17 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                   <div className="grid grid-cols-2 sm:flex sm:flex-wrap justify-start xl:justify-end gap-2 w-full xl:w-auto">
                     <input type="file" id="xl-import" accept=".xlsx,.xls,.csv" onChange={handleImportExcel} className="hidden" />
 
+                    {isSuperAdmin && onToggleRoot && (
+                      <button
+                        onClick={onToggleRoot}
+                        className="bg-gov-blue text-white border-2 border-gov-yellow px-2.5 py-2.5 sm:px-3 sm:py-2.5 font-black uppercase text-[7.5px] sm:text-[8px] flex items-center justify-center gap-1 hover:bg-blue-900 hover:scale-105 transition-all shadow-sm rounded-2xl group"
+                        title="Abrir Painel Root"
+                      >
+                        <SettingsIcon className="w-3 h-3 text-gov-yellow group-hover:rotate-90 transition-transform shrink-0" />
+                        <span>Painel Root</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={handleExportVCF}
                       className="bg-indigo-600 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-indigo-700 transition-all shadow-sm rounded-2xl"
@@ -617,13 +631,6 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       className="bg-green-500 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-green-600 transition-all shadow-sm rounded-2xl"
                     >
                       <MessageSquare className="w-3.5 h-3.5" /> Transmissão
-                    </button>
-
-                    <button
-                      onClick={() => setShowShareModal(true)}
-                      className="bg-white text-green-600 border border-green-600 px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-green-50 transition-all rounded-2xl"
-                    >
-                      <Share2 className="w-3.5 h-3.5" /> Cadastro
                     </button>
 
                     <button
@@ -759,7 +766,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 ) : activeTab === 'election_day' ? (
                   <ElectionDay members={members} />
                 ) : activeTab === 'settings' ? (
-                  <Settings username={username} />
+                  <Settings username={username} organization={organization} />
                 ) : activeTab === 'admin_master' && permissions.canAccessAdminMaster ? (
                   <AdminMaster />
                 ) : (

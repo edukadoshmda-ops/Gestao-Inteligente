@@ -632,7 +632,7 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
       </main>
 
       {/* Footer do Checkout */}
-      <footer className="bg-white border-t border-[#E2E8F0] py-8 text-center text-[10px] text-[#A0AEC0] font-black uppercase tracking-widest mt-20 px-6 rounded-2xl">
+      <footer className="bg-white border-t border-[#E2E8F0] py-8 text-center text-[10px] text-[#A0AEC0] font-black uppercase tracking-widest mt-20 px-6">
         <div className="max-w-6xl mx-auto space-y-2">
           <p>© {new Date().getFullYear()} Sistema de Gestão Eleitoral Inteligente. Todos os direitos reservados.</p>
           <p>Operação e processamento financeiro seguro integrados via Asaas IP S.A.</p>

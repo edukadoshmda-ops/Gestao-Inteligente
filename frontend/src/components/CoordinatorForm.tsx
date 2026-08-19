@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Coordinator } from '../types';
-import { X, Save, Camera, User } from 'lucide-react';
+import { X, Save, Camera, User, Lock, Eye, EyeOff, Key } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface CoordinatorFormProps {
@@ -12,9 +12,11 @@ interface CoordinatorFormProps {
 }
 
 export default function CoordinatorForm({ onSave, onCancel, initialData, networkId, availableCoordinators = [] }: CoordinatorFormProps) {
+  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     neighborhood: '',
     city: '',
     voterId: '',
@@ -30,6 +32,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
       setFormData({
         name: initialData.name,
         email: (initialData as any).email || '',
+        password: (initialData as any).password || '',
         neighborhood: initialData.neighborhood,
         city: initialData.city,
         voterId: initialData.voterId || '',
@@ -108,15 +111,40 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Email</label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full p-4 bg-gray-50 border-2 border-gray-100 focus:border-gov-blue outline-none text-xs font-bold tracking-wider rounded-full"
-              placeholder="email@exemplo.com"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Email de Acesso</label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="w-full p-4 bg-gray-50 border-2 border-gray-100 focus:border-gov-blue outline-none text-xs font-bold tracking-wider rounded-full"
+                placeholder="email@exemplo.com"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest flex items-center justify-between">
+                <span className="flex items-center gap-1.5"><Lock className="w-3 h-3 text-gov-blue" /> Senha de Acesso</span>
+                <span className="text-[8px] text-gray-400 font-bold lowercase">(opcional / primeiro acesso)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full p-4 pr-12 bg-gray-50 border-2 border-gray-100 focus:border-gov-blue outline-none text-xs font-bold tracking-wider rounded-full"
+                  placeholder="Defina uma senha"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gov-blue transition-colors p-1"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-6">

@@ -141,13 +141,32 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         'candidato@teste.com', 'coordenador@teste.com', 'area@teste.com'
       ];
 
-      if (demoRoles.includes(cleanEmail) && password === '123456') {
+      const savedDemoPass = localStorage.getItem(`@AppGestao:demoPass_${cleanEmail}`) || '123456';
+      if (demoRoles.includes(cleanEmail) && (password === '123456' || password === savedDemoPass)) {
         const fakeSession = {
           user: { id: `demo-${cleanEmail}`, email: cleanEmail },
           access_token: 'demo-token'
         };
         onLogin(fakeSession);
         return;
+      }
+
+      // Login de Coordenador Cadastrado
+      try {
+        const registeredCoords = await db.getCoordinators();
+        const matchedCoord = registeredCoords.find(
+          c => c.email?.trim().toLowerCase() === cleanEmail && (c as any).password === password
+        );
+        if (matchedCoord) {
+          const fakeSession = {
+            user: { id: `coord-${matchedCoord.id}`, email: cleanEmail },
+            access_token: 'coord-token'
+          };
+          onLogin(fakeSession);
+          return;
+        }
+      } catch (coordErr) {
+        console.warn('Verificação de coordenador:', coordErr);
       }
 
       if (isSignUp) {

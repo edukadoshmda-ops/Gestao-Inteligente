@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Member, Coordinator, ElectoralResult } from '../types';
-import { Upload, Download, FileText, BarChart3, TrendingUp, Users, Target, ShieldCheck, RefreshCw, Link, FileSpreadsheet, MapPin, Globe, AlertTriangle, Eye, ShieldAlert } from 'lucide-react';
+import { Upload, Download, FileText, BarChart3, TrendingUp, Users, Target, ShieldCheck, RefreshCw, Link, FileSpreadsheet, MapPin, Globe, AlertTriangle, Eye, ShieldAlert, Hand } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -23,6 +23,41 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
   const [candidateFilter, setCandidateFilter] = useState('');
   const [selectedZone, setSelectedZone] = useState('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'map'>('table');
+
+  // Drag-to-Scroll (Mãozinha para arrastar a tabela/página para qualquer lado)
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [startY, setStartY] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!tableContainerRef.current) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, select, a, textarea')) return;
+
+    setIsDragging(true);
+    setStartX(e.pageX - tableContainerRef.current.offsetLeft);
+    setStartY(e.pageY - tableContainerRef.current.offsetTop);
+    setScrollLeft(tableContainerRef.current.scrollLeft);
+    setScrollTop(tableContainerRef.current.scrollTop);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !tableContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - tableContainerRef.current.offsetLeft;
+    const y = e.pageY - tableContainerRef.current.offsetTop;
+    const walkX = (x - startX) * 1.5;
+    const walkY = (y - startY) * 1.5;
+    tableContainerRef.current.scrollLeft = scrollLeft - walkX;
+    tableContainerRef.current.scrollTop = scrollTop - walkY;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsDragging(false);
+  };
 
   // Estados e Cálculos do Mapa Estratégico de Guerra
   const [mapMode, setMapMode] = useState<'density' | 'growth' | 'abandoned' | 'leaders' | 'critical' | 'potential'>('density');
@@ -601,15 +636,30 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
       </div>
       {viewMode === 'table' ? (
         <div className="bg-white shadow-xl border-t-4 border-gov-blue overflow-hidden rounded-2xl">
-          <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center rounded-2xl">
-            <h3 className="font-black text-gov-blue uppercase text-xs">Desempenho por Seção Eleitoral</h3>
-            <span className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter bg-orange-50 px-2 py-1">Dados Comparativos: Base vs Urna</span>
+          <div className="p-4 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2 rounded-t-2xl">
+            <div className="flex items-center gap-3">
+              <h3 className="font-black text-gov-blue uppercase text-xs">Desempenho por Seção Eleitoral</h3>
+              <span className="text-[8px] font-black uppercase text-gov-blue bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Hand className="w-2.5 h-2.5 text-gov-blue" /> Clique e arraste para navegar
+              </span>
+            </div>
+            <span className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter bg-orange-50 px-2 py-1 rounded-xl">Dados Comparativos: Base vs Urna</span>
           </div>
-          <div className="relative" style={{ maxHeight: '600px', overflow: 'auto' }}>
+          <div 
+            ref={tableContainerRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUpOrLeave}
+            onMouseLeave={handleMouseUpOrLeave}
+            className={`relative rounded-b-2xl overflow-auto select-none transition-[cursor] duration-75 ${
+              isDragging ? 'cursor-grabbing' : 'cursor-grab'
+            }`} 
+            style={{ maxHeight: '600px' }}
+          >
             <table className="w-full text-left min-w-[1400px]">
               <thead>
                 <tr className="bg-gov-blue text-white sticky top-0 z-20">
-                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-30 border-r-2 border-white/20">Região (Mun-Zona)</th>
+                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-30 border-r-2 border-white/20 rounded-tl-xl">Região (Mun-Zona)</th>
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-[120px] bg-gov-blue z-30 border-r-2 border-white/20">Município / UF</th>
                   <th className="p-3 text-[9px] font-black uppercase">Zona</th>
                   <th className="p-3 text-[9px] font-black uppercase">Seção</th>
@@ -624,7 +674,7 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap text-blue-200">Aptos/Voto</th>
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap text-green-300">Votos/Apoiador</th>
                   <th className="p-3 text-[9px] font-black uppercase text-purple-300">Força</th>
-                  <th className="p-3 text-[9px] font-black uppercase text-red-300 whitespace-nowrap">Ação</th>
+                  <th className="p-3 text-[9px] font-black uppercase text-red-300 whitespace-nowrap rounded-tr-xl">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -805,9 +855,7 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
                     })}
 
                     {/* Plotagem de Pontos Interativos */}
-                    {neighborhoodData.map((node, 
-                      
-                    ) => {
+                    {neighborhoodData.map((node, idx) => {
                       const xCoord = node.x - 80;
                       const yCoord = node.y - 50;
 

@@ -17,6 +17,7 @@ export interface Organization {
   theme_bg?: string;
   welcome_template?: string;
   birthday_template?: string;
+  gemini_api_key?: string; // Chave Gemini AI exclusiva por campanha
 }
 
 export interface Profile {
@@ -81,6 +82,7 @@ export interface Coordinator {
   photo?: string;
   whatsapp?: string;
   email?: string;
+  password?: string;
   createdAt: string;
   org_id?: string;
   network_id?: string;

@@ -7,11 +7,13 @@ import { useMemo, useRef, useState } from 'react';
 import { Member, Coordinator } from '../types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area, Legend
 } from 'recharts';
 import {
   Trophy, Medal, Target, Crown, Star, TrendingUp, Award,
-  FileText, Loader2, Download, Check
+  FileText, Loader2, Download, Check, Users, MapPin, Sparkles,
+  PieChart as PieIcon, BarChart3, ArrowUpRight, Search, ShieldCheck,
+  Heart, Flame, Compass, Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -192,13 +194,15 @@ function ConsolidatedPDFButton({
   coordinators,
   rankingData,
   genderData,
-  ageData
+  ageData,
+  neighborhoodData
 }: {
   members: Member[];
   coordinators: Coordinator[];
   rankingData: any[];
   genderData: any[];
   ageData: any[];
+  neighborhoodData?: any[];
 }) {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
@@ -420,12 +424,34 @@ function ConsolidatedPDFButton({
   );
 }
 
+// ── Tooltip Customizado Premium ──────────────────────────────────────────────
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-[#0B192C] text-white p-3.5 rounded-2xl shadow-2xl border-2 border-gov-yellow/40 backdrop-blur-md">
+        <p className="text-[11px] font-black uppercase tracking-wider text-gov-yellow mb-1">{label}</p>
+        <p className="text-sm font-bold flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-gov-yellow animate-pulse" />
+          <span className="text-white">{payload[0].value.toLocaleString('pt-BR')}</span>
+          <span className="text-[10px] text-gray-300 font-normal">apoiadores</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
+// ── Componente Principal ──────────────────────────────────────────────────────
 export default function AnalyticsTab({ members, coordinators, activeTab }: AnalyticsTabProps) {
   const rankingRef = useRef<HTMLDivElement>(null);
   const genderRef  = useRef<HTMLDivElement>(null);
   const ageRef     = useRef<HTMLDivElement>(null);
+  const neighborhoodRef = useRef<HTMLDivElement>(null);
   const consolidatedRef = useRef<HTMLDivElement>(null);
 
+  const [neighborhoodSearch, setNeighborhoodSearch] = useState('');
+
+  // 1. Dados do Ranking
   const rankingData = useMemo(() => {
     const counts: Record<string, number> = {};
     members.forEach(m => {
@@ -438,25 +464,108 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
       .sort((a, b) => b.count - a.count);
   }, [members, coordinators]);
 
+  // 2. Dados de Faixa Etária
   const ageData = useMemo(() => {
-    const ranges: Record<string, number> = { '16-24': 0, '25-34': 0, '35-44': 0, '45-54': 0, '55-64': 0, '65+': 0 };
+    const ranges: Record<string, { count: number; label: string; desc: string; color: string }> = {
+      '16-24': { count: 0, label: '16 a 24 anos', desc: 'Jovens & Universitários', color: '#6366F1' },
+      '25-34': { count: 0, label: '25 a 34 anos', desc: 'Jovens Profissionais', color: '#3B82F6' },
+      '35-44': { count: 0, label: '35 a 44 anos', desc: 'Adultos Estabelecidos', color: '#10B981' },
+      '45-54': { count: 0, label: '45 a 54 anos', desc: 'Maduros & Chefes de Família', color: '#F59E0B' },
+      '55-64': { count: 0, label: '55 a 64 anos', desc: 'Experientes & Líderes', color: '#EC4899' },
+      '65+':   { count: 0, label: '65+ anos',     desc: 'Terceira Idade & Sênior', color: '#8B5CF6' },
+    };
+
     members.forEach(m => {
       if (!m.age) return;
-      if (m.age < 25) ranges['16-24']++;
-      else if (m.age < 35) ranges['25-34']++;
-      else if (m.age < 45) ranges['35-44']++;
-      else if (m.age < 55) ranges['45-54']++;
-      else if (m.age < 65) ranges['55-64']++;
-      else ranges['65+']++;
+      if (m.age < 25) ranges['16-24'].count++;
+      else if (m.age < 35) ranges['25-34'].count++;
+      else if (m.age < 45) ranges['35-44'].count++;
+      else if (m.age < 55) ranges['45-54'].count++;
+      else if (m.age < 65) ranges['55-64'].count++;
+      else ranges['65+'].count++;
     });
-    return Object.entries(ranges).map(([range, count]) => ({ range, count }));
+
+    return Object.entries(ranges).map(([range, info]) => ({
+      range,
+      count: info.count,
+      label: info.label,
+      desc: info.desc,
+      color: info.color,
+      percentage: members.length > 0 ? ((info.count / members.length) * 100).toFixed(1) : '0'
+    }));
   }, [members]);
 
+  // Insights de Faixa Etária
+  const ageInsights = useMemo(() => {
+    const sorted = [...ageData].sort((a, b) => b.count - a.count);
+    const dominant = sorted[0] || { range: 'N/A', count: 0, percentage: '0', label: 'Nenhum' };
+    
+    const youth = ageData.filter(a => a.range === '16-24' || a.range === '25-34').reduce((acc, curr) => acc + curr.count, 0);
+    const adult = ageData.filter(a => a.range === '35-44' || a.range === '45-54').reduce((acc, curr) => acc + curr.count, 0);
+    const senior = ageData.filter(a => a.range === '55-64' || a.range === '65+').reduce((acc, curr) => acc + curr.count, 0);
+
+    const total = members.length || 1;
+    return {
+      dominant,
+      youth: { count: youth, pct: ((youth / total) * 100).toFixed(1) },
+      adult: { count: adult, pct: ((adult / total) * 100).toFixed(1) },
+      senior: { count: senior, pct: ((senior / total) * 100).toFixed(1) },
+    };
+  }, [ageData, members]);
+
+  // 3. Dados de Gênero
   const genderData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    members.forEach(m => { counts[m.gender] = (counts[m.gender] || 0) + 1; });
-    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+    const counts = {
+      'Feminino': 0,
+      'Masculino': 0,
+      'Outro / Não Informado': 0
+    };
+
+    members.forEach(m => {
+      const g = (m.gender || '').trim().toLowerCase();
+      if (g.startsWith('f') || g === 'feminino' || g === 'mulher') counts['Feminino']++;
+      else if (g.startsWith('m') || g === 'masculino' || g === 'homem') counts['Masculino']++;
+      else counts['Outro / Não Informado']++;
+    });
+
+    const total = members.length || 1;
+
+    return [
+      { name: 'Feminino', value: counts['Feminino'], color: '#EC4899', gradient: '#F472B6', pct: ((counts['Feminino'] / total) * 100).toFixed(1) },
+      { name: 'Masculino', value: counts['Masculino'], color: '#2563EB', gradient: '#60A5FA', pct: ((counts['Masculino'] / total) * 100).toFixed(1) },
+      { name: 'Outros / Não Informado', value: counts['Outro / Não Informado'], color: '#F59E0B', gradient: '#FCD34D', pct: ((counts['Outro / Não Informado'] / total) * 100).toFixed(1) }
+    ];
   }, [members]);
+
+  // 4. Dados de Bairros
+  const neighborhoodData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    members.forEach(m => {
+      const n = (m.neighborhood || '').trim() || 'Centro / Não Informado';
+      counts[n] = (counts[n] || 0) + 1;
+    });
+
+    const total = members.length || 1;
+
+    return Object.entries(counts)
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: ((count / total) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [members]);
+
+  const top10Neighborhoods = useMemo(() => {
+    return neighborhoodData.slice(0, 10);
+  }, [neighborhoodData]);
+
+  const filteredNeighborhoods = useMemo(() => {
+    if (!neighborhoodSearch.trim()) return neighborhoodData;
+    return neighborhoodData.filter(n =>
+      n.name.toLowerCase().includes(neighborhoodSearch.toLowerCase())
+    );
+  }, [neighborhoodData, neighborhoodSearch]);
 
   const top3   = rankingData.slice(0, 3);
   const others = rankingData.slice(3);
@@ -464,20 +573,535 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
   return (
     <div className="space-y-6">
       {/* Top Banner with Consolidated PDF Button */}
-      <div className="glass-panel p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4 hover-lift">
-        <div>
-          <h4 className="text-gov-blue font-black uppercase text-sm tracking-wider">Centro de Inteligência Analítica</h4>
-          <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Gere relatórios unificados de toda a sua campanha eleitoral</p>
+      <div className="bg-gradient-to-r from-gov-blue via-blue-900 to-indigo-900 p-6 md:p-8 text-white rounded-2xl shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-gov-yellow overflow-hidden relative">
+        <div className="absolute right-0 top-0 w-96 h-96 bg-white/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="px-3 py-1 bg-gov-yellow/20 text-gov-yellow border border-gov-yellow/40 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3 text-gov-yellow animate-spin-slow" /> Inteligência Demográfica & Territorial
+            </span>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">Centro de Análise Estratégica</h2>
+          <p className="text-xs text-blue-200 font-medium mt-1">Gráficos profissionais e mapeamento em tempo real com {members.length} apoiadores cadastrados</p>
         </div>
-        <ConsolidatedPDFButton
-          members={members}
-          coordinators={coordinators}
-          rankingData={rankingData}
-          genderData={genderData}
-          ageData={ageData}
-        />
+        <div className="relative z-10 w-full md:w-auto flex justify-end">
+          <ConsolidatedPDFButton
+            members={members}
+            coordinators={coordinators}
+            rankingData={rankingData}
+            genderData={genderData}
+            ageData={ageData}
+            neighborhoodData={neighborhoodData}
+          />
+        </div>
       </div>
 
+      {/* ========================================================================= */}
+      {/* 1. ABA: FAIXA ETÁRIA */}
+      {/* ========================================================================= */}
+      {activeTab === 'report' && (
+        <div ref={ageRef} className="space-y-6">
+          {/* Header da Aba com Botão PDF */}
+          <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-6 h-6 text-gov-blue" />
+                <h3 className="text-xl font-black text-gov-blue uppercase tracking-tight">Distribuição por Faixa Etária</h3>
+              </div>
+              <p className="text-xs text-gray-500 font-medium mt-1">Segmentação geracional do eleitorado para calibração de discursos e mídias</p>
+            </div>
+            <PDFButton
+              containerRef={ageRef}
+              filename={`relatorio-faixa-etaria-${Date.now()}.pdf`}
+              title="Relatório Estratégico de Faixa Etária"
+              subtitle={`Base total de ${members.length} eleitores analisados`}
+            />
+          </div>
+
+          {/* Cards Executivos de Resumo */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="bg-gradient-to-br from-indigo-900 to-gov-blue text-white p-6 rounded-2xl shadow-lg border-b-4 border-gov-yellow">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-blue-200 tracking-wider">Faixa Mais Forte</span>
+                <Trophy className="w-5 h-5 text-gov-yellow" />
+              </div>
+              <p className="text-2xl font-black text-white">{ageInsights.dominant.label}</p>
+              <p className="text-xs text-gov-yellow font-black mt-1">{ageInsights.dominant.count} eleitores ({ageInsights.dominant.percentage}%)</p>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-6 rounded-2xl shadow-md border border-blue-100 border-l-4 border-l-blue-600">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Jovens (16-34 anos)</span>
+                <Flame className="w-5 h-5 text-blue-600" />
+              </div>
+              <p className="text-2xl font-black text-gov-blue">{ageInsights.youth.count}</p>
+              <div className="w-full bg-gray-100 h-2 rounded-full mt-2 overflow-hidden">
+                <div className="bg-blue-600 h-full rounded-full transition-all duration-1000" style={{ width: `${ageInsights.youth.pct}%` }} />
+              </div>
+              <p className="text-[10px] text-gray-500 font-bold mt-1.5">{ageInsights.youth.pct}% do eleitorado</p>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white p-6 rounded-2xl shadow-md border border-emerald-100 border-l-4 border-l-emerald-600">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Adultos (35-54 anos)</span>
+                <Users className="w-5 h-5 text-emerald-600" />
+              </div>
+              <p className="text-2xl font-black text-gov-blue">{ageInsights.adult.count}</p>
+              <div className="w-full bg-gray-100 h-2 rounded-full mt-2 overflow-hidden">
+                <div className="bg-emerald-600 h-full rounded-full transition-all duration-1000" style={{ width: `${ageInsights.adult.pct}%` }} />
+              </div>
+              <p className="text-[10px] text-gray-500 font-bold mt-1.5">{ageInsights.adult.pct}% do eleitorado</p>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white p-6 rounded-2xl shadow-md border border-purple-100 border-l-4 border-l-purple-600">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Sênior (55+ anos)</span>
+                <ShieldCheck className="w-5 h-5 text-purple-600" />
+              </div>
+              <p className="text-2xl font-black text-gov-blue">{ageInsights.senior.count}</p>
+              <div className="w-full bg-gray-100 h-2 rounded-full mt-2 overflow-hidden">
+                <div className="bg-purple-600 h-full rounded-full transition-all duration-1000" style={{ width: `${ageInsights.senior.pct}%` }} />
+              </div>
+              <p className="text-[10px] text-gray-500 font-bold mt-1.5">{ageInsights.senior.pct}% do eleitorado</p>
+            </motion.div>
+          </div>
+
+          {/* Gráfico Principal de Barras e Área */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h4 className="font-black text-gov-blue uppercase text-sm">Volume de Votos por Idade</h4>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Quantitativo exato de apoiadores em cada faixa</p>
+                </div>
+                <span className="px-3 py-1 bg-blue-50 text-blue-700 text-[10px] font-black uppercase rounded-full">Barras Interativas</span>
+              </div>
+              <div className="h-[360px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={ageData} margin={{ top: 20, right: 20, left: -10, bottom: 20 }}>
+                    <defs>
+                      <linearGradient id="ageBarGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3B82F6" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#1E3A8A" stopOpacity={0.9} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                    <XAxis dataKey="range" tickLine={false} axisLine={{ stroke: '#E2E8F0' }} tick={{ fontSize: 11, fontWeight: 'bold', fill: '#475569' }} />
+                    <YAxis tickLine={false} axisLine={{ stroke: '#E2E8F0' }} tick={{ fontSize: 11, fontWeight: 'bold', fill: '#475569' }} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(59, 130, 246, 0.05)' }} />
+                    <Bar dataKey="count" radius={[8, 8, 0, 0]} maxBarSize={55} fill="url(#ageBarGrad)">
+                      {ageData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Gráfico de Área de Tendência Geracional */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100 flex flex-col justify-between">
+              <div>
+                <h4 className="font-black text-gov-blue uppercase text-sm">Curva de Penetração</h4>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Distribuição contínua da campanha</p>
+                <div className="h-[220px] w-full mt-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={ageData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="ageAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366F1" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                      <XAxis dataKey="range" tickLine={false} tick={{ fontSize: 9, fontWeight: 'bold' }} />
+                      <YAxis tickLine={false} tick={{ fontSize: 9, fontWeight: 'bold' }} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="count" stroke="#6366F1" strokeWidth={3} fillOpacity={1} fill="url(#ageAreaGrad)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div className="mt-4 p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl">
+                <p className="text-[10px] font-black text-indigo-900 uppercase">💡 Dica Estratégica da IA</p>
+                <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                  Para faixas acima de 45 anos, priorize mensagens institucionais sobre saúde e segurança via WhatsApp. Para jovens, intensifique conteúdos dinâmicos no Instagram e TikTok.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Cards Detalhados de Cada Faixa */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {ageData.map((item) => (
+              <div key={item.range} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all hover:scale-105">
+                <div className="w-3 h-3 rounded-full mb-2" style={{ backgroundColor: item.color }} />
+                <p className="text-xs font-black text-gov-blue uppercase">{item.label}</p>
+                <p className="text-[9px] text-gray-400 font-bold uppercase truncate">{item.desc}</p>
+                <p className="text-xl font-black text-gov-blue mt-2">{item.count}</p>
+                <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${item.percentage}%`, backgroundColor: item.color }} />
+                </div>
+                <p className="text-[9px] font-black text-gray-500 mt-1">{item.percentage}%</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. ABA: GÊNERO */}
+      {/* ========================================================================= */}
+      {activeTab === 'gender' && (
+        <div ref={genderRef} className="space-y-6">
+          {/* Header da Aba com Botão PDF */}
+          <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <PieIcon className="w-6 h-6 text-gov-blue" />
+                <h3 className="text-xl font-black text-gov-blue uppercase tracking-tight">Distribuição e Equilíbrio por Gênero</h3>
+              </div>
+              <p className="text-xs text-gray-500 font-medium mt-1">Análise de penetração entre eleitoras e eleitores para direcionamento de pautas</p>
+            </div>
+            <PDFButton
+              containerRef={genderRef}
+              filename={`relatorio-genero-${Date.now()}.pdf`}
+              title="Relatório de Distribuição por Gênero"
+              subtitle={`Base total de ${members.length} eleitores cadastrados`}
+            />
+          </div>
+
+          {/* Cards Executivos de Resumo de Gênero */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {genderData.map((d) => (
+              <motion.div
+                key={d.name}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white p-6 rounded-2xl shadow-xl border-t-4 hover:shadow-2xl transition-all"
+                style={{ borderTopColor: d.color }}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider block">Gênero</span>
+                    <h4 className="text-lg font-black uppercase mt-0.5" style={{ color: d.color }}>{d.name}</h4>
+                  </div>
+                  <div className="p-3 rounded-2xl" style={{ backgroundColor: `${d.color}15` }}>
+                    <Users className="w-6 h-6" style={{ color: d.color }} />
+                  </div>
+                </div>
+                <div className="mt-4 flex items-baseline justify-between">
+                  <span className="text-3xl font-black text-gov-blue">{d.value.toLocaleString('pt-BR')}</span>
+                  <span className="text-lg font-black" style={{ color: d.color }}>{d.pct}%</span>
+                </div>
+                <div className="w-full bg-gray-100 h-2.5 rounded-full mt-3 overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${d.pct}%`, backgroundColor: d.color }} />
+                </div>
+                <p className="text-[10px] text-gray-400 font-bold mt-2 uppercase">Proporção na base de apoiadores</p>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Grid de Gráficos: Donut Chart + Barra Comparativa */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Donut Chart Moderno */}
+            <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h4 className="font-black text-gov-blue uppercase text-sm">Composição Percentual</h4>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Gráfico Donut de Alta Resolução</p>
+                </div>
+                <span className="px-3 py-1 bg-pink-50 text-pink-700 text-[10px] font-black uppercase rounded-full">Segmentação Ativa</span>
+              </div>
+              <div className="h-[340px] w-full flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Tooltip
+                      content={({ active, payload }: any) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-[#0B192C] text-white p-3.5 rounded-2xl shadow-2xl border-2 border-gov-yellow/40">
+                              <p className="text-[11px] font-black uppercase" style={{ color: data.color }}>{data.name}</p>
+                              <p className="text-sm font-bold mt-1 text-white">{data.value.toLocaleString('pt-BR')} apoiadores ({data.pct}%)</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Pie
+                      data={genderData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={75}
+                      outerRadius={120}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="#fff"
+                      strokeWidth={3}
+                    >
+                      {genderData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      formatter={(value, entry: any) => (
+                        <span className="text-[11px] font-black uppercase text-gov-blue mr-4">
+                          {value} ({entry.payload.pct}%)
+                        </span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Centro do Donut */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
+                  <span className="text-[10px] font-black text-gray-400 uppercase">Total</span>
+                  <span className="text-2xl font-black text-gov-blue">{members.length}</span>
+                  <span className="text-[9px] font-bold text-gray-400 uppercase">Eleitores</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Painel Estratégico de Engajamento */}
+            <div className="lg:col-span-5 bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100 flex flex-col justify-between space-y-4">
+              <div>
+                <h4 className="font-black text-gov-blue uppercase text-sm">Diretrizes de Comunicação</h4>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Estratégias por grupo demográfico</p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="p-4 bg-pink-50 border-l-4 border-pink-500 rounded-2xl">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Heart className="w-4 h-4 text-pink-600" />
+                    <span className="text-xs font-black text-pink-900 uppercase">Pauta Feminina ({genderData[0]?.pct}%)</span>
+                  </div>
+                  <p className="text-[11px] text-pink-800 leading-relaxed font-medium">
+                    No Brasil, mulheres decidem mais de 53% das eleições. Foque em propostas de creches em tempo integral, saúde preventiva da mulher e segurança pública nos bairros.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-blue-50 border-l-4 border-blue-600 rounded-2xl">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShieldCheck className="w-4 h-4 text-blue-700" />
+                    <span className="text-xs font-black text-blue-900 uppercase">Pauta Masculina ({genderData[1]?.pct}%)</span>
+                  </div>
+                  <p className="text-[11px] text-blue-800 leading-relaxed font-medium">
+                    Priorize temas ligados à geração de empregos locais, incentivo a microempreendedores, obras de infraestrutura urbana e transporte.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-2xl text-center">
+                <p className="text-[9px] font-black text-gray-400 uppercase">Índice de Diversidade da Campanha</p>
+                <p className="text-sm font-black text-gov-blue uppercase mt-0.5">Equilibrado • Ampla Cobertura</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. ABA: BAIRROS */}
+      {/* ========================================================================= */}
+      {activeTab === 'neighborhood' && (
+        <div ref={neighborhoodRef} className="space-y-6">
+          {/* Header da Aba com Botão PDF */}
+          <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-6 h-6 text-gov-blue" />
+                <h3 className="text-xl font-black text-gov-blue uppercase tracking-tight">Inteligência Territorial por Bairros</h3>
+              </div>
+              <p className="text-xs text-gray-500 font-medium mt-1">Mapeamento de concentração de apoiadores, redutos eleitorais e áreas de expansão</p>
+            </div>
+            <PDFButton
+              containerRef={neighborhoodRef}
+              filename={`relatorio-bairros-${Date.now()}.pdf`}
+              title="Relatório Estratégico de Bairros e Território"
+              subtitle={`Total de ${neighborhoodData.length} bairros mapeados com ${members.length} eleitores`}
+            />
+          </div>
+
+          {/* Cards Executivos de Resumo de Bairros */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="bg-gradient-to-br from-emerald-800 to-teal-950 text-white p-6 rounded-2xl shadow-lg border-b-4 border-gov-yellow">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-emerald-200 tracking-wider">Bairro Principal</span>
+                <Crown className="w-5 h-5 text-gov-yellow" />
+              </div>
+              <p className="text-xl font-black truncate">{neighborhoodData[0]?.name || 'N/A'}</p>
+              <p className="text-xs text-gov-yellow font-black mt-1">{neighborhoodData[0]?.count || 0} apoiadores ({neighborhoodData[0]?.percentage || 0}%)</p>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-6 rounded-2xl shadow-md border border-blue-100 border-l-4 border-l-gov-blue">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Bairros Mapeados</span>
+                <Compass className="w-5 h-5 text-gov-blue" />
+              </div>
+              <p className="text-2xl font-black text-gov-blue">{neighborhoodData.length}</p>
+              <p className="text-[10px] text-gray-500 font-bold mt-1 uppercase">Regiões com presença</p>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white p-6 rounded-2xl shadow-md border border-yellow-100 border-l-4 border-l-gov-yellow">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Média por Bairro</span>
+                <BarChart3 className="w-5 h-5 text-gov-yellow" />
+              </div>
+              <p className="text-2xl font-black text-gov-blue">
+                {neighborhoodData.length > 0 ? (members.length / neighborhoodData.length).toFixed(1) : 0}
+              </p>
+              <p className="text-[10px] text-gray-500 font-bold mt-1 uppercase">Apoiadores / região</p>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white p-6 rounded-2xl shadow-md border border-purple-100 border-l-4 border-l-purple-600">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Top 5 Concentração</span>
+                <Layers className="w-5 h-5 text-purple-600" />
+              </div>
+              <p className="text-2xl font-black text-gov-blue">
+                {neighborhoodData.slice(0, 5).reduce((acc, curr) => acc + curr.count, 0)}
+              </p>
+              <p className="text-[10px] text-gray-500 font-bold mt-1 uppercase">
+                {(neighborhoodData.slice(0, 5).reduce((acc, curr) => acc + parseFloat(curr.percentage), 0)).toFixed(1)}% do total
+              </p>
+            </motion.div>
+          </div>
+
+          {/* Gráfico de Barras Horizontal Top 10 Bairros */}
+          <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <div>
+                <h4 className="font-black text-gov-blue uppercase text-sm">Top 10 Bairros com Maior Força Eleitoral</h4>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Ranking dos redutos eleitorais com mais apoiadores cadastrados</p>
+              </div>
+              <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase rounded-full">
+                {top10Neighborhoods.length} Bairros em Destaque
+              </span>
+            </div>
+
+            <div className="h-[400px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={top10Neighborhoods}
+                  layout="vertical"
+                  margin={{ top: 10, right: 30, left: 60, bottom: 10 }}
+                >
+                  <defs>
+                    <linearGradient id="neighborhoodBarGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#059669" stopOpacity={0.8} />
+                      <stop offset="100%" stopColor="#10B981" stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
+                  <XAxis type="number" tickLine={false} axisLine={{ stroke: '#E2E8F0' }} tick={{ fontSize: 10, fontWeight: 'bold', fill: '#475569' }} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    tickLine={false}
+                    axisLine={{ stroke: '#E2E8F0' }}
+                    tick={{ fontSize: 10, fontWeight: 'bold', fill: '#1E293B' }}
+                    width={120}
+                  />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(16, 185, 129, 0.05)' }} />
+                  <Bar dataKey="count" radius={[0, 8, 8, 0]} maxBarSize={28} fill="url(#neighborhoodBarGrad)">
+                    {top10Neighborhoods.map((_, index) => {
+                      const colors = ['#059669', '#0284C7', '#6366F1', '#8B5CF6', '#D97706', '#DC2626', '#4B5563'];
+                      return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Tabela de Bairros com Busca Integrada */}
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+            <div className="p-5 bg-gray-50 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <h4 className="font-black text-gov-blue uppercase text-xs">Todos os Bairros Cadastrados</h4>
+                <p className="text-[10px] text-gray-400 font-bold uppercase">Classificação territorial completa</p>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={neighborhoodSearch}
+                  onChange={(e) => setNeighborhoodSearch(e.target.value)}
+                  placeholder="Filtrar bairro..."
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold uppercase focus:border-gov-blue outline-none text-gov-blue"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-[400px]">
+              <table className="w-full text-left">
+                <thead className="bg-gov-blue text-white sticky top-0 z-10 text-[9px] font-black uppercase tracking-wider">
+                  <tr>
+                    <th className="p-3.5 rounded-tl-xl">Posição</th>
+                    <th className="p-3.5">Nome do Bairro</th>
+                    <th className="p-3.5 text-center">Total de Apoiadores</th>
+                    <th className="p-3.5">Percentual da Base</th>
+                    <th className="p-3.5 text-center rounded-tr-xl">Status Estratégico</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-xs">
+                  {filteredNeighborhoods.length > 0 ? (
+                    filteredNeighborhoods.map((n, idx) => {
+                      const isDominant = idx < 3;
+                      const isGrowing = idx >= 3 && idx < 10;
+                      return (
+                        <tr key={n.name} className="hover:bg-blue-50/50 transition-colors font-bold">
+                          <td className="p-3.5 text-gray-400 font-black text-[10px]">{idx + 1}º</td>
+                          <td className="p-3.5 text-gov-blue uppercase flex items-center gap-2">
+                            <MapPin className="w-3.5 h-3.5 text-gov-blue/50" /> {n.name}
+                          </td>
+                          <td className="p-3.5 text-center font-black text-gov-blue text-sm">{n.count}</td>
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-24 bg-gray-100 h-2 rounded-full overflow-hidden">
+                                <div className="bg-emerald-600 h-full rounded-full" style={{ width: `${n.percentage}%` }} />
+                              </div>
+                              <span className="text-[10px] text-gray-500 font-black">{n.percentage}%</span>
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-center">
+                            {isDominant ? (
+                              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[8px] font-black uppercase rounded-full border border-emerald-300">
+                                🟢 Reduto Forte
+                              </span>
+                            ) : isGrowing ? (
+                              <span className="px-2.5 py-1 bg-blue-100 text-blue-800 text-[8px] font-black uppercase rounded-full border border-blue-300">
+                                🔵 Em Expansão
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 bg-gray-100 text-gray-700 text-[8px] font-black uppercase rounded-full">
+                                ⚪ Potencial
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-gray-400 font-bold uppercase text-xs">
+                        Nenhum bairro encontrado para o filtro "{neighborhoodSearch}"
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. ABA: RANKING (PLACAR DE LÍDERES) */}
+      {/* ========================================================================= */}
       {activeTab === 'ranking' && (
         <div ref={rankingRef} className="bg-white p-4 sm:p-10 border-b-4 border-gov-yellow shadow-xl min-h-[600px] overflow-hidden rounded-2xl">
           <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-6">
@@ -512,14 +1136,14 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
                 initial={{ opacity: 0, y: 50 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.2 }}
-                className={`relative flex flex-col items-center p-8 border-t-8 shadow-2xl ${
+                className={`relative flex flex-col items-center p-8 border-t-8 shadow-2xl rounded-2xl ${
                   index === 0 ? 'order-2 h-[380px] bg-gov-blue text-white border-gov-yellow scale-110 z-10' :
                   index === 1 ? 'order-1 h-[320px] bg-white border-gray-300' :
                   'order-3 h-[280px] bg-white border-orange-300'
                 }`}
               >
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                  {index === 0 ? <Crown className="w-12 h-12 text-gov-yellow drop-shadow-lg rounded-2xl" /> :
+                  {index === 0 ? <Crown className="w-12 h-12 text-gov-yellow drop-shadow-lg" /> :
                    index === 1 ? <Medal className="w-10 h-10 text-gray-400" /> :
                    <Medal className="w-10 h-10 text-orange-400" />}
                 </div>
@@ -534,7 +1158,7 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
                 <div className="flex items-center gap-2 mb-4">
                   <TrendingUp className="w-4 h-4 text-gov-yellow" />
                   <span className="text-2xl font-black">{coord.count}</span>
-                  <span className="text-[10px] font-bold uppercase opacity-60">Votos</span>
+                  <span className="text-[10px] font-bold uppercase opacity-60">Apoiadores</span>
                 </div>
                 <div className="mt-auto w-full text-center">
                   <div className={`px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest ${
@@ -578,126 +1202,6 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
               ))}
             </AnimatePresence>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'gender' && (
-        <div ref={genderRef} className="bg-white p-4 sm:p-10 border-b-4 border-gov-yellow shadow-xl min-h-[500px] rounded-2xl">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-10 gap-4">
-            <div>
-              <h3 className="text-2xl font-black text-gov-blue uppercase tracking-tighter italic">Distribuição por Gênero</h3>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">{members.length} eleitores analisados</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-4">
-              {genderData.map((d) => (
-                <div key={d.name} className="flex items-center gap-2">
-                  <div className={`w-3 h-3 ${d.name === 'Masculino' ? 'bg-gov-blue' : d.name === 'Feminino' ? 'bg-[#FF007F]' : 'bg-gov-yellow'}`} />
-                  <span className="text-[10px] font-bold uppercase">{d.name}: {d.value}</span>
-                </div>
-              ))}
-              <PDFButton
-                containerRef={genderRef}
-                filename={`relatorio-genero-${Date.now()}.pdf`}
-                title="Relatório de Distribuição por Gênero"
-                subtitle={`Base com ${members.length} eleitores cadastrados`}
-              />
-            </div>
-          </div>
-
-          <div className="h-[350px] w-full relative">
-            <ResponsiveContainer width="99%" height="99%">
-              <BarChart data={genderData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#003366', border: 'none', borderRadius: '0' }}
-                  itemStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}
-                  labelStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold', marginBottom: '4px' }}
-                />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {genderData.map((entry, index) => {
-                    const color = entry.name === 'Masculino' ? '#003366' : entry.name === 'Feminino' ? '#FF007F' : '#FFD700';
-                    return <Cell key={`cell-${index}`} fill={color} />;
-                  })}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Resumo numérico */}
-          <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {genderData.map((d) => {
-              const pct = members.length > 0 ? ((d.value / members.length) * 100).toFixed(1) : '0';
-              return (
-                <div key={d.name} className="bg-gray-50 p-4 border-l-4 border-gov-blue text-center rounded-2xl">
-                  <p className="text-[9px] font-black text-gray-400 uppercase">{d.name}</p>
-                  <p className="text-2xl font-black text-gov-blue mt-1">{d.value}</p>
-                  <p className="text-[9px] font-bold text-gray-400">{pct}%</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {activeTab !== 'ranking' && activeTab !== 'gender' && (
-        <div ref={ageRef} className="bg-white p-4 sm:p-10 border-b-4 border-gov-yellow shadow-xl min-h-[500px] rounded-2xl">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-10 gap-4">
-            <div>
-              <h3 className="text-2xl font-black text-gov-blue uppercase tracking-tighter italic">Relatório por Faixa Etária</h3>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">{members.length} eleitores analisados</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-[10px] font-black bg-gov-bg px-4 py-2 text-gov-blue uppercase">Módulo de Inteligência Ativado</div>
-              <PDFButton
-                containerRef={ageRef}
-                filename={`relatorio-faixa-etaria-${Date.now()}.pdf`}
-                title="Relatório Estratégico — Faixa Etária"
-                subtitle={`Base com ${members.length} eleitores cadastrados`}
-              />
-            </div>
-          </div>
-
-          <div className="h-[350px] w-full relative">
-            <ResponsiveContainer width="99%" height="99%">
-              <BarChart data={ageData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                <XAxis dataKey="range" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                <Tooltip
-                  cursor={{ fill: '#F9FAFB' }}
-                  contentStyle={{ backgroundColor: '#003366', border: 'none', borderRadius: '0' }}
-                  itemStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}
-                  labelStyle={{ color: '#fff', fontSize: '10px', fontWeight: 'bold', marginBottom: '4px' }}
-                />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {ageData.map((_, index) => {
-                    const colors = ['#003366', '#FFD700', '#FF0000', '#10B981', '#6366F1', '#F59E0B'];
-                    return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                  })}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Resumo numérico */}
-          <div className="mt-8 grid grid-cols-3 sm:grid-cols-6 gap-3">
-            {ageData.map((d) => {
-              const pct = members.length > 0 ? ((d.count / members.length) * 100).toFixed(1) : '0';
-              return (
-                <div key={d.range} className="bg-gray-50 p-3 border-l-4 border-gov-blue text-center rounded-2xl">
-                  <p className="text-[8px] font-black text-gray-400 uppercase">{d.range} anos</p>
-                  <p className="text-xl font-black text-gov-blue mt-1">{d.count}</p>
-                  <p className="text-[8px] font-bold text-gray-400">{pct}%</p>
-                </div>
-              );
-            })}
-          </div>
-
-          <p className="mt-6 text-[9px] text-gray-400 font-bold uppercase tracking-widest text-center">
-            Este gráfico identifica em quais faixas etárias sua campanha tem maior penetração.
-          </p>
         </div>
       )}
 

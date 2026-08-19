@@ -185,7 +185,7 @@ export default function App() {
     }
 
     // Debug: verificar se o manifest está carregado
-    const manifestLink = document.querySelector('link[rel="manifest"]');
+    const manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
     console.log('Manifest link:', manifestLink?.href);
 
     console.log('Ambiente:', {
@@ -275,7 +275,36 @@ export default function App() {
       'area@teste.com': { name: 'Coordenador de Área', role: 'area_coordinator', orgName: 'Campanha de Teste' },
     };
 
-    // Primeiro tenta buscar do banco de dados real (para usuários criados via AdminMaster)
+    // Se for usuário demo, carregar dados de demo diretamente sem gerar erro de sintaxe UUID no PostgreSQL
+    if (userId.startsWith('demo-') || (userEmail && demoRoles[userEmail])) {
+      const emailKey = userEmail || userId.replace('demo-', '');
+      const demoData = demoRoles[emailKey] || { name: 'Administrador', role: 'super_admin', orgName: 'Painel Master' };
+      const testProfile = {
+        id: userId,
+        full_name: demoData.name,
+        email: emailKey,
+        role: demoData.role,
+        organization_id: brandOrg?.id || 'demo-org',
+        organization: brandOrg || {
+          id: 'demo-org',
+          name: demoData.orgName,
+          candidate_name: demoData.name,
+          created_at: new Date().toISOString()
+        }
+      };
+      setProfile(testProfile as any);
+      setLoading(false);
+      return testProfile;
+    }
+
+    // Validar se é um UUID válido para o PostgreSQL
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(userId)) {
+      setLoading(false);
+      return null;
+    }
+
+    // Busca do banco de dados real (para usuários criados via Supabase Auth)
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -293,8 +322,8 @@ export default function App() {
         return data;
       } else if (error) {
         console.warn('Erro ao buscar perfil:', error);
-        // Se o erro for 406 (perfil não encontrado), tentar criar perfil
-        if (error.code === 'PGRST116') {
+        // Se o perfil não foi encontrado (PGRST116), tentar criar
+        if (error.code === 'PGRST116' && userEmail) {
           console.log('Perfil não encontrado, tentando criar...');
           try {
             const { error: insertError } = await supabase
@@ -307,14 +336,12 @@ export default function App() {
             if (insertError) {
               console.error('Erro ao criar perfil:', insertError);
             } else {
-              console.log('Perfil criado com sucesso');
-              // Tentar buscar novamente
-              const { data: newData, error: newError } = await supabase
+              const { data: newData } = await supabase
                 .from('profiles')
                 .select('*, organization:organizations(*)')
                 .eq('id', userId)
                 .single();
-              if (newData && !newError) {
+              if (newData) {
                 setProfile(newData);
                 setLoading(false);
                 return newData;
@@ -326,28 +353,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.log('Perfil não encontrado no banco, verificando demo roles...');
-    }
-
-    // Fallback para demo roles (apenas para desenvolvimento)
-    if (userEmail && demoRoles[userEmail]) {
-      const demoData = demoRoles[userEmail];
-      const testProfile = {
-        id: userId,
-        full_name: demoData.name,
-        email: userEmail,
-        role: demoData.role,
-        organization_id: brandOrg?.id || 'demo-org',
-        organization: brandOrg || {
-          id: 'demo-org',
-          name: demoData.orgName,
-          candidate_name: demoData.name,
-          created_at: new Date().toISOString()
-        }
-      };
-      setProfile(testProfile as any);
-      setLoading(false);
-      return testProfile;
+      console.log('Erro na busca do perfil:', err);
     }
 
     // Se não encontrou nem no banco nem nos demo roles
@@ -419,15 +425,9 @@ export default function App() {
             }
           }}
           onShowSales={() => setShowSales(true)}
+          onToggleRoot={() => setIsRootView(!isRootView)}
+          isRootView={isRootView}
         />
-        {isMasterAdmin && (
-          <button 
-            onClick={() => setIsRootView(!isRootView)}
-            className="fixed bottom-6 right-6 bg-gov-blue text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all z-[3000] flex items-center gap-2 font-black uppercase text-xs border-2 border-gov-yellow"
-          >
-            <Settings className="w-5 h-5 animate-pulse" /> {isRootView ? 'Voltar ao App' : 'Painel Root'}
-          </button>
-        )}
         {/* Botão flutuante de instalação PWA */}
         {deferredPrompt && (
           <motion.button

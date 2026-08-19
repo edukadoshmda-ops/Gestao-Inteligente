@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import { Member } from '../types';
 import { User, Trash2, Edit3, MessageCircle } from 'lucide-react';
 
@@ -36,6 +37,40 @@ const getWhatsAppLink = (phone: string, name: string, template?: string) => {
 };
 
 export default function MemberList({ members, onDelete, onEdit, onSelect, welcomeTemplate }: MemberListProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [startY, setStartY] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!tableContainerRef.current) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, select, a, textarea')) return;
+
+    setIsDragging(true);
+    setStartX(e.pageX - tableContainerRef.current.offsetLeft);
+    setStartY(e.pageY - tableContainerRef.current.offsetTop);
+    setScrollLeft(tableContainerRef.current.scrollLeft);
+    setScrollTop(tableContainerRef.current.scrollTop);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !tableContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - tableContainerRef.current.offsetLeft;
+    const y = e.pageY - tableContainerRef.current.offsetTop;
+    const walkX = (x - startX) * 1.5;
+    const walkY = (y - startY) * 1.5;
+    tableContainerRef.current.scrollLeft = scrollLeft - walkX;
+    tableContainerRef.current.scrollTop = scrollTop - walkY;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsDragging(false);
+  };
+
   if (members.length === 0) {
     return (
       <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gov-blue/20">
@@ -48,16 +83,26 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
 
   return (
     <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-2xl">
-      <div className="relative" style={{ maxHeight: '600px', overflow: 'auto' }}>
+      <div 
+        ref={tableContainerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUpOrLeave}
+        onMouseLeave={handleMouseUpOrLeave}
+        className={`relative rounded-2xl overflow-auto select-none transition-[cursor] duration-75 ${
+          isDragging ? 'cursor-grabbing' : 'cursor-grab'
+        }`} 
+        style={{ maxHeight: '600px' }}
+      >
         <table className="w-full text-left border-collapse min-w-[1100px]">
           <thead>
             <tr className="bg-gov-blue text-white sticky top-0 z-20">
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 sticky left-0 bg-gov-blue z-30">Nome Completo</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 sticky left-0 bg-gov-blue z-30 rounded-tl-xl">Nome Completo</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">WhatsApp</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 text-center">Idade</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">Gênero</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">Título / Seção / Zona</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-center">Ações</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-center rounded-tr-xl">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">

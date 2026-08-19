@@ -120,10 +120,10 @@ export default function LandingPage({ onStart, onLogin, onPublicRegister, onCrea
   };
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 font-sans overflow-hidden rounded-2xl">
+    <div className="min-h-screen bg-white text-gray-900 font-sans overflow-hidden">
 
       {/* ── Navbar ── */}
-      <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center shadow-sm rounded-2xl">
+      <nav className="fixed top-0 left-0 right-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center shadow-sm">
         <Logo className="w-36 h-10" forceDefault={true} />
         <div className="flex items-center gap-3">
           {canInstall && onInstall && (
@@ -661,7 +661,7 @@ export default function LandingPage({ onStart, onLogin, onPublicRegister, onCrea
       </section>
 
       {/* ── Footer ── */}
-      <footer className="py-12 bg-gray-950 px-6 rounded-2xl">
+      <footer className="py-12 bg-gray-950 px-6 border-t border-white/5">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
           <Logo className="w-32 h-12" variant="white" forceDefault={true} />
           <div className="flex gap-8 text-[10px] font-black uppercase text-gray-500 tracking-widest">
