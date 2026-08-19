@@ -13,10 +13,11 @@ import RootPanel from './components/RootPanel';
 import PWAInstaller from './components/PWAInstaller';
 import { Settings, Loader2, DownloadCloud, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { supabase } from './lib/supabase';
+import { supabase, supabaseAdmin } from './lib/supabase';
 import { Organization, Profile } from './types';
 import Logo from './components/Logo';
 import { sendSmartNotification } from './lib/notifications';
+import { applyAppTheme, resetAppTheme, getStoredTheme } from './lib/theme';
 
 export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -68,37 +69,39 @@ export default function App() {
     const isLandingPage = !session && !showLogin && !showSales && !isPublicForm;
     
     if (isLandingPage) {
-      document.documentElement.style.removeProperty('--theme-primary');
-      document.documentElement.style.removeProperty('--theme-secondary');
-      document.documentElement.style.removeProperty('--theme-bg');
+      resetAppTheme();
     } else {
-      if (brandOrg && brandOrg.theme_primary) {
-        document.documentElement.style.setProperty('--theme-primary', brandOrg.theme_primary);
-        document.documentElement.style.setProperty('--theme-secondary', brandOrg.theme_secondary || '');
-        document.documentElement.style.setProperty('--theme-bg', brandOrg.theme_bg || '');
-        
-        localStorage.setItem('@AppGestao:savedTheme', JSON.stringify({
-          primary: brandOrg.theme_primary,
-          secondary: brandOrg.theme_secondary,
-          bg: brandOrg.theme_bg
-        }));
+      let editedMap: Record<string, any> = {};
+      try {
+        editedMap = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+      } catch {}
+
+      const activeOrg = brandOrg || profile?.organization;
+      const finalOrg = activeOrg ? { ...activeOrg, ...(editedMap[activeOrg.id] || {}) } : null;
+
+      if (finalOrg && (finalOrg.theme_primary || finalOrg.theme_color)) {
+        applyAppTheme(
+          finalOrg.theme_primary || finalOrg.theme_color,
+          finalOrg.theme_secondary,
+          finalOrg.theme_bg
+        );
       } else {
-        const savedTheme = localStorage.getItem('@AppGestao:savedTheme');
-        if (savedTheme) {
-          try {
-            const theme = JSON.parse(savedTheme);
-            if (theme && theme.primary && theme.secondary && theme.bg) {
-              document.documentElement.style.setProperty('--theme-primary', theme.primary);
-              document.documentElement.style.setProperty('--theme-secondary', theme.secondary);
-              document.documentElement.style.setProperty('--theme-bg', theme.bg);
-            }
-          } catch (e) {
-            console.error('Error loading saved theme:', e);
-          }
+        const stored = getStoredTheme();
+        if (stored.primary) {
+          applyAppTheme(stored.primary, stored.secondary, stored.bg);
         }
       }
     }
-  }, [session, showLogin, showSales, isPublicForm, brandOrg]);
+
+    const handleThemeUpdate = (e: any) => {
+      if (e.detail?.primary) {
+        applyAppTheme(e.detail.primary, e.detail.secondary, e.detail.bg);
+      }
+    };
+
+    window.addEventListener('themeUpdated', handleThemeUpdate);
+    return () => window.removeEventListener('themeUpdated', handleThemeUpdate);
+  }, [session, showLogin, showSales, isPublicForm, brandOrg, profile]);
 
   useEffect(() => {
     const orgId = new URLSearchParams(window.location.search).get('org');
@@ -279,78 +282,97 @@ export default function App() {
     if (userId.startsWith('demo-') || (userEmail && demoRoles[userEmail])) {
       const emailKey = userEmail || userId.replace('demo-', '');
       const demoData = demoRoles[emailKey] || { name: 'Administrador', role: 'super_admin', orgName: 'Painel Master' };
+      
+      let orgData: any = brandOrg || {
+        id: 'demo-org',
+        name: demoData.orgName,
+        candidate_name: demoData.name,
+        created_at: new Date().toISOString()
+      };
+
+      try {
+        const editedMap = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+        if (editedMap[orgData.id]) {
+          orgData = { ...orgData, ...editedMap[orgData.id] };
+        }
+      } catch {}
+
+      if (orgData.theme_primary || orgData.theme_color) {
+        applyAppTheme(orgData.theme_primary || orgData.theme_color, orgData.theme_secondary, orgData.theme_bg);
+      }
+
       const testProfile = {
         id: userId,
         full_name: demoData.name,
         email: emailKey,
         role: demoData.role,
-        organization_id: brandOrg?.id || 'demo-org',
-        organization: brandOrg || {
-          id: 'demo-org',
-          name: demoData.orgName,
-          candidate_name: demoData.name,
-          created_at: new Date().toISOString()
-        }
+        organization_id: orgData.id,
+        organization: orgData
       };
+      setBrandOrg(orgData);
       setProfile(testProfile as any);
       setLoading(false);
       return testProfile;
     }
 
-    // Validar se é um UUID válido para o PostgreSQL
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(userId)) {
-      setLoading(false);
-      return null;
-    }
-
-    // Busca do banco de dados real (para usuários criados via Supabase Auth)
+    // Busca do banco de dados real via cliente administrativo ou supabase
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*, organization:organizations(*)')
-        .eq('id', userId)
-        .single();
+      const client = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      
+      let query = client.from('profiles').select('*, organization:organizations(*)');
+
+      if (uuidRegex.test(userId)) {
+        query = query.eq('id', userId);
+      } else if (userEmail) {
+        query = query.eq('email', userEmail.toLowerCase().trim());
+      } else {
+        setLoading(false);
+        return null;
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (data && !error) {
-        setProfile(data);
-        if (data?.organization?.logo_url) {
-          localStorage.setItem('@AppGestao:savedLogo', data.organization.logo_url);
-          window.dispatchEvent(new Event('logoUpdated'));
-        }
-        setLoading(false);
-        return data;
-      } else if (error) {
-        console.warn('Erro ao buscar perfil:', error);
-        // Se o perfil não foi encontrado (PGRST116), tentar criar
-        if (error.code === 'PGRST116' && userEmail) {
-          console.log('Perfil não encontrado, tentando criar...');
+        let orgData = data.organization;
+        if (orgData) {
           try {
-            const { error: insertError } = await supabase
-              .from('profiles')
-              .insert({
-                id: userId,
-                email: userEmail,
-                full_name: userEmail.split('@')[0]
-              });
-            if (insertError) {
-              console.error('Erro ao criar perfil:', insertError);
-            } else {
-              const { data: newData } = await supabase
-                .from('profiles')
-                .select('*, organization:organizations(*)')
-                .eq('id', userId)
-                .single();
-              if (newData) {
-                setProfile(newData);
-                setLoading(false);
-                return newData;
-              }
+            const editedMap = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+            if (editedMap[orgData.id]) {
+              orgData = { ...orgData, ...editedMap[orgData.id] };
             }
-          } catch (insertErr) {
-            console.error('Erro ao criar perfil:', insertErr);
+          } catch {}
+
+          setBrandOrg(orgData);
+          if (orgData.theme_primary || orgData.theme_color) {
+            applyAppTheme(
+              orgData.theme_primary || orgData.theme_color,
+              orgData.theme_secondary,
+              orgData.theme_bg
+            );
+          }
+          if (orgData.logo_url) {
+            localStorage.setItem('@AppGestao:savedLogo', orgData.logo_url);
+            window.dispatchEvent(new Event('logoUpdated'));
           }
         }
+        const updatedProfile = { ...data, organization: orgData };
+        setProfile(updatedProfile);
+        setLoading(false);
+        return updatedProfile;
+      } else if (userEmail) {
+        // Fallback: se não encontrou o perfil no Supabase, criar ou montar perfil provisório
+        const fallbackProfile = {
+          id: userId,
+          email: userEmail,
+          full_name: userEmail.split('@')[0],
+          role: 'coordinator',
+          organization_id: brandOrg?.id || undefined,
+          organization: brandOrg
+        };
+        setProfile(fallbackProfile as any);
+        setLoading(false);
+        return fallbackProfile;
       }
     } catch (err) {
       console.log('Erro na busca do perfil:', err);

@@ -82,14 +82,14 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
   }
 
   return (
-    <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-2xl">
+    <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-none">
       <div 
         ref={tableContainerRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
         onMouseLeave={handleMouseUpOrLeave}
-        className={`relative rounded-2xl overflow-auto select-none transition-[cursor] duration-75 ${
+        className={`relative overflow-auto select-none transition-[cursor] duration-75 ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`} 
         style={{ maxHeight: '600px' }}
@@ -97,12 +97,12 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
         <table className="w-full text-left border-collapse min-w-[1100px]">
           <thead>
             <tr className="bg-gov-blue text-white sticky top-0 z-20">
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 sticky left-0 bg-gov-blue z-30 rounded-tl-xl">Nome Completo</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 sticky left-0 bg-gov-blue z-30 rounded-none">Nome Completo</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">WhatsApp</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50 text-center">Idade</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">Gênero</th>
               <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest border-r border-blue-900/50">Título / Seção / Zona</th>
-              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-center rounded-tr-xl">Ações</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-center">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">

@@ -233,5 +233,17 @@
 .card-rounded { border-radius: 1.5rem; }
 .btn-rounded { border-radius: 0.75rem; }
 .modal-rounded { border-radius: 1.5rem; }
-.table-rounded { border-radius: 1.5rem; }
+
+/* REGRA GLOBAL: Todas as tabelas e cabeçalhos com cantos 100% quadrados */
+table,
+table thead,
+table thead tr,
+table thead th,
+table thead th:first-child,
+table thead th:last-child,
+table tbody tr,
+table tbody td {
+  border-radius: 0 !important;
+}
+
 

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, Lock, Key, CheckCircle2, AlertCircle, Eye, EyeOff, Sparkles, Save, ExternalLink, Copy, Check } from 'lucide-react';
+import { ShieldCheck, Lock, Key, CheckCircle2, AlertCircle, Eye, EyeOff, Sparkles, Save, ExternalLink, Copy, Check, Palette, Building2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Organization } from '../types';
+import { PARTY_THEMES, applyAppTheme, normalizeHex } from '../lib/theme';
 
 interface SettingsProps {
   username: string;
@@ -20,6 +21,13 @@ export default function Settings({ username, organization }: SettingsProps) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  // Theme state
+  const [primaryColor, setPrimaryColor] = useState(organization?.theme_primary || organization?.theme_color || '#003366');
+  const [secondaryColor, setSecondaryColor] = useState(organization?.theme_secondary || '#FFCC00');
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [themeSuccess, setThemeSuccess] = useState(false);
+  const [themeError, setThemeError] = useState('');
+
   // Gemini API Key state
   const [geminiKey, setGeminiKey] = useState('');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
@@ -28,12 +36,67 @@ export default function Settings({ username, organization }: SettingsProps) {
   const [geminiError, setGeminiError] = useState('');
   const [geminiCopied, setGeminiCopied] = useState(false);
 
-  // Load existing key on mount
+  // Load existing data on mount / organization update
   useEffect(() => {
     if (organization?.gemini_api_key) {
       setGeminiKey(organization.gemini_api_key);
     }
+    if (organization?.theme_primary || organization?.theme_color) {
+      setPrimaryColor(organization.theme_primary || organization.theme_color || '#003366');
+    }
+    if (organization?.theme_secondary) {
+      setSecondaryColor(organization.theme_secondary || '#FFCC00');
+    }
   }, [organization]);
+
+  const handleSaveTheme = async () => {
+    setThemeSaving(true);
+    setThemeError('');
+    setThemeSuccess(false);
+
+    const prim = normalizeHex(primaryColor, '#003366');
+    const sec = normalizeHex(secondaryColor, '#FFCC00');
+
+    try {
+      // 1. Aplicar imediatamente no DOM e no localStorage
+      applyAppTheme(prim, sec);
+
+      // 2. Salvar em editedOrgs para persistência offline
+      if (organization?.id) {
+        try {
+          const edited = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+          edited[organization.id] = {
+            ...edited[organization.id],
+            theme_primary: prim,
+            theme_secondary: sec,
+            theme_color: prim
+          };
+          localStorage.setItem('@AppGestao:editedOrgs', JSON.stringify(edited));
+        } catch {}
+
+        // 3. Salvar no Supabase
+        const { error: updateErr } = await supabase
+          .from('organizations')
+          .update({
+            theme_primary: prim,
+            theme_secondary: sec,
+            theme_color: prim
+          })
+          .eq('id', organization.id);
+
+        if (updateErr) {
+          console.warn('Aviso ao salvar tema no Supabase:', updateErr);
+        }
+      }
+
+      setThemeSuccess(true);
+      setTimeout(() => setThemeSuccess(false), 4000);
+    } catch (err: any) {
+      setThemeError(err.message || 'Erro ao salvar tema');
+    } finally {
+      setThemeSaving(false);
+    }
+  };
 
   const handleSaveGeminiKey = async () => {
     if (!organization?.id) {
@@ -177,6 +240,173 @@ export default function Settings({ username, organization }: SettingsProps) {
 
   return (
     <div className="space-y-6">
+
+      {/* ── IDENTIDADE VISUAL & TEMA DA CAMPANHA ──────────── */}
+      <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md rounded-2xl">
+        <div className="flex items-center gap-3 mb-2">
+          <Palette className="w-6 h-6 text-gov-blue" />
+          <h2 className="text-xl font-black text-gov-blue uppercase">Identidade Visual & Cores da Campanha</h2>
+        </div>
+        <p className="text-xs text-gray-500 font-bold mb-5 uppercase tracking-wide">
+          Personalize as cores oficiais da sua campanha eleitoral no sistema em tempo real.
+        </p>
+
+        {themeSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-2 bg-green-50 text-green-700 p-4 rounded-xl border-l-4 border-green-500 text-xs font-bold mb-4"
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            Tema da campanha atualizado com sucesso no sistema!
+          </motion.div>
+        )}
+
+        {themeError && (
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-2 bg-red-50 text-red-700 p-4 rounded-xl border-l-4 border-red-500 text-xs font-bold mb-4"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            {themeError}
+          </motion.div>
+        )}
+
+        {/* Modelos Partidários Rápidos */}
+        <div className="mb-4">
+          <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-wider">
+            Modelos Partidários Rápidos (1-Clique):
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {PARTY_THEMES.map((theme, idx) => {
+              const isSelected = primaryColor.toLowerCase() === theme.primary.toLowerCase();
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setPrimaryColor(theme.primary);
+                    setSecondaryColor(theme.secondary);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${
+                    isSelected
+                      ? 'border-gov-blue bg-white shadow-md ring-2 ring-gov-blue/20'
+                      : 'border-gray-200 bg-gray-50 hover:bg-white hover:border-gray-300'
+                  }`}
+                  title={theme.name}
+                >
+                  <span className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: theme.primary }} />
+                  <span className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm -ml-1.5" style={{ backgroundColor: theme.secondary }} />
+                  <span className="text-gray-700">{theme.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Custom Color Pickers */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+          <div className="p-3 bg-gray-50 border-2 border-gray-100 rounded-xl">
+            <label className="text-[10px] font-black uppercase text-gray-500 block mb-2">
+              Cor Primária (Header, Menus, Títulos)
+            </label>
+            <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-gray-200 focus-within:border-gov-blue">
+              <input 
+                type="color" 
+                value={normalizeHex(primaryColor, '#003366')}
+                onChange={e => setPrimaryColor(e.target.value)}
+                className="w-9 h-9 rounded cursor-pointer bg-transparent border-0"
+              />
+              <input 
+                type="text" 
+                value={primaryColor}
+                onChange={e => {
+                  let val = e.target.value;
+                  if (val && !val.startsWith('#') && /^[0-9A-Fa-f]/.test(val)) val = '#' + val;
+                  setPrimaryColor(val);
+                }}
+                className="flex-1 font-mono font-black text-sm text-gray-800 uppercase outline-none"
+                placeholder="#003366"
+              />
+            </div>
+          </div>
+
+          <div className="p-3 bg-gray-50 border-2 border-gray-100 rounded-xl">
+            <label className="text-[10px] font-black uppercase text-gray-500 block mb-2">
+              Cor Secundária (Destaques, Bordas, Alertas)
+            </label>
+            <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-gray-200 focus-within:border-gov-blue">
+              <input 
+                type="color" 
+                value={normalizeHex(secondaryColor, '#FFCC00')}
+                onChange={e => setSecondaryColor(e.target.value)}
+                className="w-9 h-9 rounded cursor-pointer bg-transparent border-0"
+              />
+              <input 
+                type="text" 
+                value={secondaryColor}
+                onChange={e => {
+                  let val = e.target.value;
+                  if (val && !val.startsWith('#') && /^[0-9A-Fa-f]/.test(val)) val = '#' + val;
+                  setSecondaryColor(val);
+                }}
+                className="flex-1 font-mono font-black text-sm text-gray-800 uppercase outline-none"
+                placeholder="#FFCC00"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Live Preview Box */}
+        <div className="mb-5 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+          <span className="text-[10px] font-black uppercase text-gray-400 block mb-2">Prévia da Identidade Visual:</span>
+          <div 
+            className="p-4 rounded-xl flex items-center justify-between text-white shadow-md transition-all"
+            style={{ 
+              backgroundColor: normalizeHex(primaryColor, '#003366'),
+              borderBottom: `4px solid ${normalizeHex(secondaryColor, '#FFCC00')}`
+            }}
+          >
+            <div className="flex items-center gap-2.5">
+              <Building2 className="w-5 h-5" style={{ color: normalizeHex(secondaryColor, '#FFCC00') }} />
+              <div>
+                <p className="font-black text-sm uppercase tracking-wider">
+                  {organization?.candidate_name || 'Campanha Eleitoral'}
+                </p>
+                <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">
+                  Gestão Estratégica
+                </p>
+              </div>
+            </div>
+            <span 
+              className="px-3 py-1 rounded-lg text-xs font-black uppercase shadow-sm"
+              style={{
+                backgroundColor: normalizeHex(secondaryColor, '#FFCC00'),
+                color: normalizeHex(primaryColor, '#003366')
+              }}
+            >
+              Exemplo Botão
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSaveTheme}
+          disabled={themeSaving}
+          className="w-full bg-gov-blue text-white font-black py-3 rounded-xl uppercase text-xs tracking-widest hover:bg-blue-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-md shadow-gov-blue/20"
+        >
+          {themeSaving ? (
+            <span className="animate-pulse">Aplicando tema...</span>
+          ) : (
+            <>
+              <Save className="w-4 h-4 text-gov-yellow" />
+              Salvar e Aplicar Cores da Campanha
+            </>
+          )}
+        </button>
+      </div>
 
       {/* ── GEMINI AI KEY ────────────────────────────── */}
       <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md rounded-2xl">

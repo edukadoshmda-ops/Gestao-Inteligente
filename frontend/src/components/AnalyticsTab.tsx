@@ -1018,7 +1018,7 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
           </div>
 
           {/* Tabela de Bairros com Busca Integrada */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-none shadow-xl border border-gray-100 overflow-hidden">
             <div className="p-5 bg-gray-50 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
               <div>
                 <h4 className="font-black text-gov-blue uppercase text-xs">Todos os Bairros Cadastrados</h4>
@@ -1040,11 +1040,11 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
               <table className="w-full text-left">
                 <thead className="bg-gov-blue text-white sticky top-0 z-10 text-[9px] font-black uppercase tracking-wider">
                   <tr>
-                    <th className="p-3.5 rounded-tl-xl">Posição</th>
+                    <th className="p-3.5">Posição</th>
                     <th className="p-3.5">Nome do Bairro</th>
                     <th className="p-3.5 text-center">Total de Apoiadores</th>
                     <th className="p-3.5">Percentual da Base</th>
-                    <th className="p-3.5 text-center rounded-tr-xl">Status Estratégico</th>
+                    <th className="p-3.5 text-center">Status Estratégico</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-xs">

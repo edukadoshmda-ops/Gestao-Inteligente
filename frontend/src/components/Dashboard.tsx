@@ -74,8 +74,9 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const isCampaignAdmin = profile.role === 'general_coordination' || profile.role === 'candidate' || isSuperAdmin;
   const isOverdue = organization?.subscription_status === 'overdue' && !isSuperAdmin;
 
-  // Cores dinâmicas
-  const primaryColor = organization?.theme_color || '#003366';
+  // Cores dinâmicas da campanha
+  const primaryColor = organization?.theme_primary || organization?.theme_color || '#003366';
+  const secondaryColor = organization?.theme_secondary || '#FFCC00';
 
   const loggedInCoordinator = useMemo(() => {
     if (profile.role === 'coordinator') {
@@ -185,8 +186,10 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   };
 
   useEffect(() => {
-    // Buscar membros com filtro de rede se aplicável
-    db.getMembers().then(allMembers => {
+    const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+
+    // Buscar membros com persistência resiliente e filtro de rede
+    db.getMembers(currentOrgId).then(allMembers => {
       if (networkFilter) {
         // Filtrar membros pela rede do coordenador
         const networkMembers = allMembers.filter(m => m.network_id === profile.id);
@@ -196,8 +199,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       }
     });
 
-    // Buscar coordenadores com filtro de rede se aplicável
-    db.getCoordinators().then(allCoordinators => {
+    // Buscar coordenadores com persistência resiliente e filtro de rede
+    db.getCoordinators(currentOrgId).then(allCoordinators => {
       if (networkFilter) {
         // Filtrar coordenadores pela rede
         const networkCoordinators = allCoordinators.filter(c => c.network_id === profile.id);
@@ -265,7 +268,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
   const saveMembers = async (data: Member[]) => {
     setMembers(data);
-    await db.saveMembers(data);
+    const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+    await db.saveMembers(data, currentOrgId);
   };
 
   const handleAddMember = (memberData: Omit<Member, 'id' | 'createdAt'>) => {
@@ -320,12 +324,13 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   };
 
   const handleAddCoordinator = async (coordData: Omit<Coordinator, 'id' | 'createdAt'>) => {
+    const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
     if (selectedCoordinator) {
       const updated = coordinators.map(c =>
         c.id === selectedCoordinator.id ? { ...c, ...coordData } : c
       );
       setCoordinators(updated);
-      await db.saveCoordinators(updated);
+      await db.saveCoordinators(updated, currentOrgId);
       setSelectedCoordinator(null);
       showToast('Coordenador atualizado!');
     } else {
@@ -333,12 +338,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         ...coordData,
         id: crypto.randomUUID().split('-')[0],
         createdAt: new Date().toISOString(),
-        org_id: organization?.id,
+        org_id: currentOrgId,
         network_id: networkFilter ? profile.id : undefined // Adiciona network_id se for coordenador criando sub-coordenador
       };
       const updated = [newCoord, ...coordinators];
       setCoordinators(updated);
-      await db.saveCoordinators(updated);
+      await db.saveCoordinators(updated, currentOrgId);
       showToast('Coordenador cadastrado!');
     }
     setIsAddingCoordinator(false);
@@ -426,7 +431,15 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   }
 
   return (
-    <div className="h-screen bg-gov-bg flex flex-row overflow-hidden" style={{ '--gov-blue': primaryColor } as any}>
+    <div 
+      className="h-screen bg-gov-bg flex flex-row overflow-hidden" 
+      style={{ 
+        '--theme-primary': primaryColor,
+        '--theme-secondary': secondaryColor,
+        '--color-gov-blue': primaryColor, 
+        '--color-gov-yellow': secondaryColor 
+      } as any}
+    >
       <Sidebar 
         activeTab={activeTab} 
         onTabChange={setActiveTab} 
@@ -701,7 +714,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       onDelete={permissions.canDeleteCoordinators ? async (id) => {
                         const updated = coordinators.filter(c => c.id !== id);
                         setCoordinators(updated);
-                        await db.saveCoordinators(updated);
+                        const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+                        await db.saveCoordinators(updated, currentOrgId);
                       } : undefined}
                       onSelect={(c) => {
                         setActiveCoordinator(c);

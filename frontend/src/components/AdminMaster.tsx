@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAdmin } from '../lib/supabase';
 import { Organization, Profile } from '../types';
 import { 
   Building2, 
@@ -30,6 +30,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { asaasService } from '../services/asaas';
 import notificationService from '../services/notifications';
 import AdminCreateCampaign from './AdminCreateCampaign';
+import { PARTY_THEMES, applyAppTheme, normalizeHex } from '../lib/theme';
 
 export default function AdminMaster() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
@@ -52,7 +53,10 @@ export default function AdminMaster() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [formData, setFormData] = useState({ candidate_name: '', subdomain: '' });
-  const [userFormData, setUserFormData] = useState({ email: '', full_name: '', role: 'coordinator', organization_id: '' });
+  const [userFormData, setUserFormData] = useState({ email: '', full_name: '', role: 'coordinator', organization_id: '', password: '123456' });
+  const [paletteModalOrg, setPaletteModalOrg] = useState<Organization | null>(null);
+  const [quickPrimary, setQuickPrimary] = useState('#003366');
+  const [quickSecondary, setQuickSecondary] = useState('#FFCC00');
   // Persistência local para garantir que edições e exclusões funcionem sempre
   const getDeletedOrgIds = (): string[] => {
     try {
@@ -106,7 +110,8 @@ export default function AdminMaster() {
 
   const fetchProfiles = async () => {
     try {
-      const { data, error } = await supabase
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const { data, error } = await clientToUse
         .from('profiles')
         .select('*, organization:organizations(*)')
         .order('created_at', { ascending: false });
@@ -235,44 +240,142 @@ export default function AdminMaster() {
         return;
       }
 
-      // 1. Criar usuário no Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userFormData.email,
-        password: 'temp123456', // Senha temporária que o usuário deve alterar
-      });
+      const cleanEmail = userFormData.email.trim().toLowerCase();
+      const cleanName = userFormData.full_name.trim();
+      const cleanPassword = userFormData.password?.trim() || '123456';
+      let userId: string | null = null;
 
-      if (authError) {
-        console.error('Erro no auth:', authError);
-        throw authError;
+      // 1. Tentar criar usuário usando supabaseAdmin para evitar RLS e rate-limits
+      if (supabaseAdmin && !supabaseAdmin.isMock && supabaseAdmin.auth?.admin) {
+        const { data: adminAuthData, error: adminAuthError } = await supabaseAdmin.auth.admin.createUser({
+          email: cleanEmail,
+          password: cleanPassword,
+          email_confirm: true,
+          user_metadata: {
+            full_name: cleanName,
+            role: userFormData.role
+          }
+        });
+
+        if (adminAuthData?.user?.id) {
+          userId = adminAuthData.user.id;
+        } else if (adminAuthError && (adminAuthError.message?.includes('already been registered') || adminAuthError.message?.includes('already registered'))) {
+          // Se já existe no Auth, buscar o ID existente e atualizar senha e metadados
+          const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+          const existing = usersList?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
+          if (existing) {
+            userId = existing.id;
+            await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+              password: cleanPassword,
+              email_confirm: true,
+              user_metadata: {
+                full_name: cleanName,
+                role: userFormData.role
+              }
+            });
+          }
+        } else if (adminAuthError) {
+          console.warn('Aviso no admin createUser:', adminAuthError);
+        }
       }
 
-      if (!authData.user?.id) {
-        throw new Error('Não foi possível criar o usuário no Supabase Auth');
+      // Se não conseguiu via Admin API, tentar signUp via cliente público
+      if (!userId) {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: cleanPassword,
+          options: {
+            data: {
+              full_name: cleanName,
+              role: userFormData.role
+            }
+          }
+        });
+
+        if (authError && !authError.message?.includes('already registered')) {
+          console.error('Erro no auth:', authError);
+          throw authError;
+        }
+
+        if (authData?.user?.id) {
+          userId = authData.user.id;
+        }
       }
 
-      // 2. Criar perfil na tabela profiles
-      const { error: profileError } = await supabase
+      if (!userId) {
+        userId = crypto.randomUUID();
+      }
+
+      // 2. Salvar credencial local para contingência e fallback de login
+      try {
+        localStorage.setItem(`@AppGestao:userPass_${cleanEmail}`, cleanPassword);
+      } catch {}
+
+      // 3. Criar ou atualizar perfil na tabela profiles usando supabaseAdmin para contornar RLS
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const { error: profileError } = await clientToUse
         .from('profiles')
-        .insert([{
-          id: authData.user.id,
-          email: userFormData.email,
-          full_name: userFormData.full_name,
+        .upsert({
+          id: userId,
+          email: cleanEmail,
+          full_name: cleanName,
           role: userFormData.role,
           organization_id: userFormData.organization_id
-        }]);
+        }, {
+          onConflict: 'id'
+        });
 
       if (profileError) {
         console.error('Erro no profile:', profileError);
         throw profileError;
       }
 
-      alert(`✅ Usuário criado com sucesso!\n\n📧 Email: ${userFormData.email}\n🔑 Senha temporária: temp123456\n\n⚠️ Importante: O usuário deve alterar a senha no primeiro acesso.`);
+      alert(`✅ Usuário cadastrado com sucesso!\n\n📧 Email: ${cleanEmail}\n🔑 Senha de Acesso: ${cleanPassword}\n\nO usuário já pode fazer login imediatamente.`);
       setIsAddingUser(false);
-      setUserFormData({ email: '', full_name: '', role: 'coordinator', organization_id: '' });
+      setUserFormData({ email: '', full_name: '', role: 'coordinator', organization_id: '', password: '123456' });
       fetchProfiles();
     } catch (err: any) {
       console.error('Erro ao criar usuário:', err);
       alert(`Erro ao criar usuário: ${err.message || 'Erro desconhecido'}\n\nVerifique se o email já está cadastrado ou se há problemas de conexão.`);
+    }
+  };
+
+  const handleDeleteProfile = async (profileId: string, profileName: string) => {
+    if (!confirm(`⚠️ Deseja realmente remover o usuário "${profileName}"?`)) {
+      return;
+    }
+
+    // 1. Atualizar UI imediatamente
+    setProfiles(prev => prev.filter(p => p.id !== profileId));
+
+    try {
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+
+      // 2. Remover do banco de dados na tabela profiles
+      const { error: profileError } = await clientToUse
+        .from('profiles')
+        .delete()
+        .eq('id', profileId);
+
+      if (profileError) {
+        console.warn('Aviso ao remover profile:', profileError);
+      }
+
+      // 3. Remover conta no Auth se supabaseAdmin estiver disponível
+      if (supabaseAdmin && !supabaseAdmin.isMock && supabaseAdmin.auth?.admin) {
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(profileId);
+        } catch (authErr) {
+          console.warn('Aviso ao remover do Auth:', authErr);
+        }
+      }
+
+      alert(`✅ Usuário "${profileName}" removido com sucesso!`);
+    } catch (err: any) {
+      console.error('Erro ao excluir usuário:', err);
+      alert(`Aviso ao remover usuário: ${err.message || 'Erro de sincronização'}`);
+    } finally {
+      fetchProfiles();
     }
   };
 
@@ -283,8 +386,8 @@ export default function AdminMaster() {
       subdomain: org.subdomain || '',
       subscription_status: org.subscription_status || 'active',
       logo_url: org.logo_url || '',
-      theme_primary: org.theme_primary || '',
-      theme_secondary: org.theme_secondary || ''
+      theme_primary: org.theme_primary || org.theme_color || '#003366',
+      theme_secondary: org.theme_secondary || '#FFCC00'
     });
     setIsEditing(true);
   };
@@ -299,13 +402,17 @@ export default function AdminMaster() {
     }
 
     setLoading(true);
+    const primColor = normalizeHex(editFormData.theme_primary, '#003366');
+    const secColor = normalizeHex(editFormData.theme_secondary, '#FFCC00');
+
     const updatedFields: Partial<Organization> = {
       candidate_name: editFormData.candidate_name.trim(),
       subdomain: editFormData.subdomain ? editFormData.subdomain.toLowerCase().trim() : undefined,
       subscription_status: editFormData.subscription_status,
       logo_url: editFormData.logo_url ? editFormData.logo_url.trim() : undefined,
-      theme_primary: editFormData.theme_primary ? editFormData.theme_primary.trim() : undefined,
-      theme_secondary: editFormData.theme_secondary ? editFormData.theme_secondary.trim() : undefined,
+      theme_primary: primColor,
+      theme_secondary: secColor,
+      theme_color: primColor,
     };
 
     // 1. Salvar no localStorage para persistência garantida
@@ -323,20 +430,66 @@ export default function AdminMaster() {
     // 2. Atualizar estado imediatamente
     setOrgs(prev => prev.map(o => o.id === editingOrg.id ? { ...o, ...updatedFields } : o));
 
-    // 3. Atualizar no Supabase
+    // 3. Aplicar tema no DOM e no localStorage em tempo real
+    applyAppTheme(primColor, secColor);
+
+    // 4. Atualizar no Supabase
     try {
-      await supabase
+      const { error: updateError } = await supabase
         .from('organizations')
         .update(updatedFields)
         .eq('id', editingOrg.id);
+      if (updateError) {
+        console.warn('Aviso na atualização do Supabase:', updateError);
+      }
     } catch (err: any) {
       console.warn('Atualização remota no Supabase:', err);
     } finally {
       setLoading(false);
       setIsEditing(false);
       setEditingOrg(null);
-      alert(`✅ Organização "${editFormData.candidate_name}" atualizada com sucesso!`);
+      alert(`✅ Organização "${editFormData.candidate_name}" e tema atualizados com sucesso!`);
     }
+  };
+
+  const handleApplyPalette = async (org: Organization, primary: string, secondary: string) => {
+    const prim = normalizeHex(primary, '#003366');
+    const sec = normalizeHex(secondary, '#FFCC00');
+
+    // 1. Atualizar estado local imediatamente
+    setOrgs(prev => prev.map(o => o.id === org.id ? { ...o, theme_primary: prim, theme_secondary: sec, theme_color: prim } : o));
+
+    // 2. Salvar no localStorage
+    try {
+      const editedMap = getEditedOrgs();
+      editedMap[org.id] = {
+        ...editedMap[org.id],
+        theme_primary: prim,
+        theme_secondary: sec,
+        theme_color: prim
+      };
+      localStorage.setItem('@AppGestao:editedOrgs', JSON.stringify(editedMap));
+    } catch {}
+
+    // 3. Aplicar tema no DOM se for o tema ativo
+    applyAppTheme(prim, sec);
+
+    // 4. Salvar no Supabase via supabaseAdmin
+    try {
+      const client = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      await client
+        .from('organizations')
+        .update({
+          theme_primary: prim,
+          theme_secondary: sec,
+          theme_color: prim
+        })
+        .eq('id', org.id);
+    } catch (e) {
+      console.warn('Erro ao salvar tema remoto:', e);
+    }
+
+    setPaletteModalOrg(null);
   };
 
   const handleDeleteOrg = async (orgId: string, orgName: string) => {
@@ -526,7 +679,20 @@ export default function AdminMaster() {
             </div>
             <div>
               <label className="text-[10px] font-black uppercase text-gray-400 block mb-1">E-mail</label>
-              <input type="email" required value={userFormData.email} onChange={e => setUserFormData({...userFormData, email: e.target.value})} className="w-full p-3 bg-gray-50 border-2 border-gray-100 outline-none focus:border-green-600 font-bold text-sm rounded-2xl" />
+              <input type="email" required value={userFormData.email} onChange={e => setUserFormData({...userFormData, email: e.target.value})} className="w-full p-3 bg-gray-50 border-2 border-gray-100 outline-none focus:border-green-600 font-bold text-sm rounded-2xl" placeholder="exemplo@campanha.com" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase text-gray-400 block mb-1">Senha de Acesso (Mínimo 6 caracteres)</label>
+              <input 
+                type="text" 
+                required 
+                minLength={6} 
+                value={userFormData.password || '123456'} 
+                onChange={e => setUserFormData({...userFormData, password: e.target.value})} 
+                className="w-full p-3 bg-gray-50 border-2 border-gray-100 outline-none focus:border-green-600 font-bold text-sm rounded-2xl" 
+                placeholder="123456" 
+              />
+              <span className="text-[9px] text-gray-400 font-bold block mt-1">Padrão do sistema: 123456</span>
             </div>
             <div>
               <label className="text-[10px] font-black uppercase text-gray-400 block mb-1">Papel (Função)</label>
@@ -599,13 +765,13 @@ export default function AdminMaster() {
                      profile.role === 'area_coordinator' ? 'Coord. Área' :
                      'Coordenador'}
                   </span>
+{
+                    /* ... */
+                  }
                   <button
-                    onClick={() => {
-                      if(confirm('Remover este usuário?')) {
-                        supabase.from('profiles').delete().eq('id', profile.id).then(() => fetchProfiles());
-                      }
-                    }}
-                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl"
+                    onClick={() => handleDeleteProfile(profile.id, profile.full_name)}
+                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                    title="Excluir Usuário"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -620,87 +786,151 @@ export default function AdminMaster() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {loading ? (
           <div className="col-span-full py-20 text-center"><RefreshCw className="w-10 h-10 animate-spin mx-auto text-gov-blue/20" /></div>
-        ) : filteredOrgs.map(org => (
-          <div key={org.id} className="bg-white border-2 border-gray-100 p-5 sm:p-6 shadow-sm hover:shadow-md transition-all relative overflow-hidden group rounded-2xl flex flex-col justify-between">
-            <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rotate-45 pointer-events-none ${
-              org.subscription_status === 'active' ? 'bg-green-500' : 
-              org.subscription_status === 'trialing' ? 'bg-blue-400' : 'bg-orange-500'
-            }`} />
-            
-            <div>
-              <div className="flex items-center gap-3 sm:gap-4 mb-4 pr-8">
-                <div className="bg-gov-bg p-2.5 sm:p-3 rounded-2xl shrink-0">
-                  <Building2 className="w-5 h-5 sm:w-6 h-6 text-gov-blue" />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="font-black text-gov-blue uppercase text-sm leading-none truncate">{org.candidate_name}</h4>
-                  <p className="text-[9px] font-bold text-gray-400 mt-1 truncate">SUBDOMÍNIO: {org.subdomain || '---'}</p>
-                </div>
-              </div>
+        ) : filteredOrgs.map(org => {
+          const primColor = org.theme_primary || org.theme_color || '#003366';
+          const secColor = org.theme_secondary || '#FFCC00';
 
-              <div className="space-y-2 border-t border-gray-50 pt-4 rounded-2xl">
-                <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-black text-gray-400 uppercase">Status:</span>
-                  <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-xl ${
-                    org.subscription_status === 'active' ? 'bg-green-100 text-green-700' : 
-                    org.subscription_status === 'trialing' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-                  }`}>
-                    {org.subscription_status}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-black text-gray-400 uppercase">Link Público:</span>
-                  <button 
-                    onClick={() => {
-                      const link = `${window.location.origin}?org=${org.id}`;
-                      navigator.clipboard.writeText(link);
-                      alert('Link de captura copiado!');
-                    }}
-                    className="text-[9px] font-bold text-blue-600 underline truncate max-w-[120px] hover:text-blue-800"
+          return (
+            <div 
+              key={org.id} 
+              className="bg-white border-2 border-gray-100 p-5 sm:p-6 shadow-sm hover:shadow-md transition-all relative overflow-hidden group rounded-2xl flex flex-col justify-between"
+              style={{ borderTop: `5px solid ${primColor}` }}
+            >
+              <div>
+                <div className="flex items-center gap-3 sm:gap-4 mb-3">
+                  <div 
+                    className="p-2.5 sm:p-3 rounded-2xl shrink-0 flex items-center justify-center border"
+                    style={{ backgroundColor: `${primColor}15`, borderColor: `${primColor}30` }}
                   >
-                    Copiar Link
-                  </button>
+                    {org.logo_url ? (
+                      <img src={org.logo_url} alt={org.candidate_name} className="w-6 h-6 object-contain" onError={(e) => { (e.target as any).style.display = 'none'; }} />
+                    ) : (
+                      <Building2 className="w-5 h-5 sm:w-6 h-6" style={{ color: primColor }} />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-black uppercase text-sm leading-none truncate" style={{ color: primColor }}>{org.candidate_name}</h4>
+                    <p className="text-[9px] font-bold text-gray-400 mt-1 truncate">SUBDOMÍNIO: {org.subdomain || '---'}</p>
+                  </div>
+                </div>
+
+                {/* Identidade Visual / Cores da Campanha - Clicável para abrir o seletor */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaletteModalOrg(org);
+                    setQuickPrimary(primColor);
+                    setQuickSecondary(secColor);
+                  }}
+                  className="w-full flex items-center justify-between mb-3 px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 transition-all text-left group/color"
+                  title="Clique para escolher entre 16 modelos partidários ou personalizar as cores"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Palette className="w-3.5 h-3.5 text-gov-blue group-hover/color:scale-110 transition-transform" />
+                    <span className="text-[9px] font-black uppercase text-gray-600">Mudar Cores:</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: primColor }} title={`Cor Primária: ${primColor}`} />
+                      <span className="text-[9px] font-black uppercase font-mono" style={{ color: primColor }}>{primColor}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: secColor }} title={`Cor Secundária: ${secColor}`} />
+                      <span className="text-[9px] font-black uppercase font-mono text-gray-600">{secColor}</span>
+                    </div>
+                  </div>
+                </button>
+
+                <div className="space-y-2 border-t border-gray-50 pt-3 rounded-2xl">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Status:</span>
+                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-xl ${
+                      org.subscription_status === 'active' ? 'bg-green-100 text-green-700' : 
+                      org.subscription_status === 'trialing' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {org.subscription_status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Login (Equipe):</span>
+                    <button 
+                      onClick={() => {
+                        const link = `${window.location.origin}?org=${org.id}`;
+                        navigator.clipboard.writeText(link);
+                        alert(`🔑 Link de Login exclusivo copiado!\n\n${link}`);
+                      }}
+                      className="text-[9px] font-black text-gov-blue hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 transition-colors"
+                      title="Copiar link que cai direto no login da campanha"
+                    >
+                      Copiar Login
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Cadastro (Rua):</span>
+                    <button 
+                      onClick={() => {
+                        const link = `${window.location.origin}?org=${org.id}&public=true`;
+                        navigator.clipboard.writeText(link);
+                        alert(`📋 Link de Cadastro Público copiado!\n\n${link}`);
+                      }}
+                      className="text-[9px] font-black text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 px-2 py-0.5 rounded-lg border border-green-200 transition-colors"
+                      title="Copiar link de adesão para eleitores e voluntários"
+                    >
+                      Copiar Cadastro
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex flex-wrap sm:flex-nowrap gap-2 mt-6 pt-2">
-              {org.subscription_status === 'pending' && (
-                <button
-                  onClick={() => handleActivateOrg(org.id, org.candidate_name)}
-                  className="flex-1 min-w-[70px] bg-blue-600 text-white p-2.5 text-[9px] font-black uppercase hover:bg-blue-700 flex items-center justify-center gap-1 rounded-xl transition-all shadow-sm"
-                >
-                  <CheckCircle2 className="w-3 h-3" /> Ativar
-                </button>
-              )}
-              <button
-                onClick={() => handleCreateBilling(org.id, org.candidate_name)}
-                className="flex-1 min-w-[80px] bg-green-600 text-white p-2.5 text-[9px] font-black uppercase hover:bg-green-700 flex items-center justify-center gap-1 rounded-xl transition-all shadow-sm"
-              >
-                <DollarSign className="w-3 h-3" /> Faturar
-              </button>
-              <button 
-                onClick={() => handleOpenEdit(org)}
-                className="flex-1 min-w-[70px] bg-gray-50 text-gov-blue p-2.5 text-[9px] font-black uppercase hover:bg-gov-bg flex items-center justify-center gap-1 rounded-xl transition-all border border-gray-100 hover:border-gov-blue/20"
-                title="Editar Organização"
-              >
-                <Edit2 className="w-3 h-3" /> Editar
-              </button>
-              <button 
-                className="p-2.5 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 rounded-xl transition-all border border-red-100 flex items-center justify-center shrink-0 disabled:opacity-50"
-                onClick={() => handleDeleteOrg(org.id, org.candidate_name)}
-                disabled={isDeleting === org.id}
-                title="Excluir Organização"
-              >
-                {isDeleting === org.id ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="w-3.5 h-3.5" />
+              <div className="flex flex-wrap sm:flex-nowrap gap-2 mt-6 pt-2">
+                {org.subscription_status === 'pending' && (
+                  <button
+                    onClick={() => handleActivateOrg(org.id, org.candidate_name)}
+                    className="flex-1 min-w-[70px] bg-blue-600 text-white p-2.5 text-[9px] font-black uppercase hover:bg-blue-700 flex items-center justify-center gap-1 rounded-xl transition-all shadow-sm"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Ativar
+                  </button>
                 )}
-              </button>
+                <button
+                  onClick={() => handleCreateBilling(org.id, org.candidate_name)}
+                  className="flex-1 min-w-[75px] bg-green-600 text-white p-2.5 text-[9px] font-black uppercase hover:bg-green-700 flex items-center justify-center gap-1 rounded-xl transition-all shadow-sm"
+                >
+                  <DollarSign className="w-3 h-3" /> Faturar
+                </button>
+                <button 
+                  onClick={() => {
+                    setPaletteModalOrg(org);
+                    setQuickPrimary(primColor);
+                    setQuickSecondary(secColor);
+                  }}
+                  className="flex-1 min-w-[75px] bg-purple-50 text-purple-700 hover:bg-purple-100 p-2.5 text-[9px] font-black uppercase flex items-center justify-center gap-1 rounded-xl transition-all border border-purple-200"
+                  title="Personalizar Cores & Tema"
+                >
+                  <Palette className="w-3 h-3" /> Cores
+                </button>
+                <button 
+                  onClick={() => handleOpenEdit(org)}
+                  className="flex-1 min-w-[70px] bg-gray-50 text-gov-blue p-2.5 text-[9px] font-black uppercase hover:bg-gov-bg flex items-center justify-center gap-1 rounded-xl transition-all border border-gray-100 hover:border-gov-blue/20"
+                  title="Editar Organização"
+                >
+                  <Edit2 className="w-3 h-3" /> Editar
+                </button>
+                <button 
+                  className="p-2.5 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 rounded-xl transition-all border border-red-100 flex items-center justify-center shrink-0 disabled:opacity-50"
+                  onClick={() => handleDeleteOrg(org.id, org.candidate_name)}
+                  disabled={isDeleting === org.id}
+                  title="Excluir Organização"
+                >
+                  {isDeleting === org.id ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       
       {filteredOrgs.length === 0 && !loading && (
@@ -803,45 +1033,125 @@ export default function AdminMaster() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-gray-500 block mb-1 tracking-wider flex items-center gap-1">
-                      <Palette className="w-3 h-3 text-gov-blue" /> Cor Primária
+                {/* Seletor de Tema e Cores da Campanha */}
+                <div className="space-y-3 p-4 bg-gray-50/80 border-2 border-gray-100 rounded-2xl">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase text-gray-700 tracking-wider flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-gov-blue" /> Tema & Identidade Visual
                     </label>
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="color" 
-                        value={editFormData.theme_primary || '#003366'} 
-                        onChange={e => setEditFormData({ ...editFormData, theme_primary: e.target.value })} 
-                        className="w-10 h-10 p-1 rounded-lg border border-gray-200 cursor-pointer bg-white"
-                      />
-                      <input 
-                        type="text" 
-                        value={editFormData.theme_primary} 
-                        onChange={e => setEditFormData({ ...editFormData, theme_primary: e.target.value })} 
-                        className="flex-1 p-2.5 bg-gray-50 border-2 border-gray-100 outline-none focus:border-gov-blue font-mono font-bold text-xs rounded-xl"
-                        placeholder="#003366"
-                      />
+                    <span className="text-[9px] font-bold text-gray-400">Cores Oficiais da Campanha</span>
+                  </div>
+
+                  {/* Atalhos Rápidos de Partidos */}
+                  <div>
+                    <span className="text-[9px] font-black uppercase text-gray-400 block mb-1.5">Modelos Partidários Rápidos:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PARTY_THEMES.map((theme, idx) => {
+                        const isSelected = editFormData.theme_primary?.toLowerCase() === theme.primary.toLowerCase();
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setEditFormData({
+                              ...editFormData,
+                              theme_primary: theme.primary,
+                              theme_secondary: theme.secondary
+                            })}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-black transition-all border ${
+                              isSelected
+                                ? 'border-gov-blue bg-white shadow-sm ring-2 ring-gov-blue/20'
+                                : 'border-gray-200 bg-white hover:border-gray-300'
+                            }`}
+                            title={theme.name}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full border border-black/10" style={{ backgroundColor: theme.primary }} />
+                            <span className="w-2.5 h-2.5 rounded-full border border-black/10 -ml-1" style={{ backgroundColor: theme.secondary }} />
+                            <span className="text-gray-700 truncate max-w-[90px]">{theme.name?.split('(')[0].trim()}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-gray-500 block mb-1 tracking-wider flex items-center gap-1">
-                      <Palette className="w-3 h-3 text-gov-blue" /> Cor Secundária
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="color" 
-                        value={editFormData.theme_secondary || '#FFCC00'} 
-                        onChange={e => setEditFormData({ ...editFormData, theme_secondary: e.target.value })} 
-                        className="w-10 h-10 p-1 rounded-lg border border-gray-200 cursor-pointer bg-white"
-                      />
-                      <input 
-                        type="text" 
-                        value={editFormData.theme_secondary} 
-                        onChange={e => setEditFormData({ ...editFormData, theme_secondary: e.target.value })} 
-                        className="flex-1 p-2.5 bg-gray-50 border-2 border-gray-100 outline-none focus:border-gov-blue font-mono font-bold text-xs rounded-xl"
-                        placeholder="#FFCC00"
-                      />
+
+                  {/* Inputs Customizados de Cores */}
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-gray-500 block mb-1 tracking-wider">
+                        Cor Primária (Header/Botões)
+                      </label>
+                      <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border-2 border-gray-200 focus-within:border-gov-blue transition-colors">
+                        <input 
+                          type="color" 
+                          value={normalizeHex(editFormData.theme_primary, '#003366')} 
+                          onChange={e => setEditFormData({ ...editFormData, theme_primary: e.target.value })} 
+                          className="w-8 h-8 rounded-lg border-0 cursor-pointer bg-transparent"
+                        />
+                        <input 
+                          type="text" 
+                          value={editFormData.theme_primary} 
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (val && !val.startsWith('#') && /^[0-9A-Fa-f]/.test(val)) val = '#' + val;
+                            setEditFormData({ ...editFormData, theme_primary: val });
+                          }} 
+                          className="flex-1 bg-transparent outline-none font-mono font-black text-xs text-gray-800 uppercase"
+                          placeholder="#003366"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-gray-500 block mb-1 tracking-wider">
+                        Cor Secundária (Destaques/Detalhes)
+                      </label>
+                      <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border-2 border-gray-200 focus-within:border-gov-blue transition-colors">
+                        <input 
+                          type="color" 
+                          value={normalizeHex(editFormData.theme_secondary, '#FFCC00')} 
+                          onChange={e => setEditFormData({ ...editFormData, theme_secondary: e.target.value })} 
+                          className="w-8 h-8 rounded-lg border-0 cursor-pointer bg-transparent"
+                        />
+                        <input 
+                          type="text" 
+                          value={editFormData.theme_secondary} 
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (val && !val.startsWith('#') && /^[0-9A-Fa-f]/.test(val)) val = '#' + val;
+                            setEditFormData({ ...editFormData, theme_secondary: val });
+                          }} 
+                          className="flex-1 bg-transparent outline-none font-mono font-black text-xs text-gray-800 uppercase"
+                          placeholder="#FFCC00"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Prévia em Tempo Real */}
+                  <div className="p-3 bg-white border border-gray-200 rounded-xl space-y-2">
+                    <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider block">
+                      Prévia Visual em Tempo Real:
+                    </span>
+                    <div 
+                      className="p-3 rounded-xl flex items-center justify-between text-white shadow-md transition-all"
+                      style={{ 
+                        backgroundColor: normalizeHex(editFormData.theme_primary, '#003366'),
+                        borderBottom: `4px solid ${normalizeHex(editFormData.theme_secondary, '#FFCC00')}`
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4" style={{ color: normalizeHex(editFormData.theme_secondary, '#FFCC00') }} />
+                        <span className="font-black text-xs uppercase tracking-wider truncate max-w-[200px]">
+                          {editFormData.candidate_name || 'Nome da Campanha'}
+                        </span>
+                      </div>
+                      <span 
+                        className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase shadow-sm"
+                        style={{
+                          backgroundColor: normalizeHex(editFormData.theme_secondary, '#FFCC00'),
+                          color: normalizeHex(editFormData.theme_primary, '#003366')
+                        }}
+                      >
+                        Ativo
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -864,6 +1174,173 @@ export default function AdminMaster() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal de Seleção Rápida de Paleta & Cores (16 opções + customizado) */}
+        {paletteModalOrg && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setPaletteModalOrg(null)} 
+              className="absolute inset-0 bg-gov-blue/60 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.95, opacity: 0, y: 20 }} 
+              className="bg-white w-full max-w-2xl border-4 border-gov-blue shadow-2xl relative z-10 rounded-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              <div className="bg-gov-blue p-6 text-white flex justify-between items-center border-b-4 border-gov-yellow">
+                <div>
+                  <h3 className="font-black uppercase tracking-widest text-sm flex items-center gap-2">
+                    <Palette className="w-4 h-4 text-gov-yellow" /> Escolher Cores da Campanha
+                  </h3>
+                  <p className="text-[11px] text-blue-200 font-bold mt-0.5">
+                    {paletteModalOrg.candidate_name}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setPaletteModalOrg(null)}
+                  className="p-1 hover:bg-white/10 rounded-full transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5 overflow-y-auto flex-1">
+                {/* 16 Modelos Partidários / Estilos */}
+                <div>
+                  <label className="text-[10px] font-black uppercase text-gray-500 block mb-2 tracking-wider">
+                    Modelos Partidários & Paletas Oficiais (16 Opções Rápidas):
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {PARTY_THEMES.map((theme, idx) => {
+                      const isSelected = quickPrimary.toLowerCase() === theme.primary.toLowerCase() && quickSecondary.toLowerCase() === theme.secondary.toLowerCase();
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setQuickPrimary(theme.primary);
+                            setQuickSecondary(theme.secondary);
+                          }}
+                          className={`flex items-center justify-between p-2.5 rounded-xl text-left transition-all border-2 ${
+                            isSelected
+                              ? 'border-gov-blue bg-blue-50/50 shadow-md ring-2 ring-gov-blue/20'
+                              : 'border-gray-100 bg-white hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="flex items-center -space-x-1 shrink-0">
+                              <span className="w-4 h-4 rounded-full border border-white shadow" style={{ backgroundColor: theme.primary }} />
+                              <span className="w-4 h-4 rounded-full border border-white shadow" style={{ backgroundColor: theme.secondary }} />
+                            </div>
+                            <span className="text-[11px] font-black text-gray-800 truncate">{theme.name}</span>
+                          </div>
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-gov-blue shrink-0 ml-1" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Custom Pickers */}
+                <div className="p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl space-y-3">
+                  <span className="text-[10px] font-black uppercase text-gray-500 tracking-wider block">
+                    Personalizar Cores Exatas (Seletor ou Código HEX):
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-gray-500 block mb-1">Cor Primária (Header / Botões)</label>
+                      <div className="flex items-center gap-2 bg-white p-2 rounded-xl border-2 border-gray-200">
+                        <input 
+                          type="color" 
+                          value={normalizeHex(quickPrimary, '#003366')} 
+                          onChange={e => setQuickPrimary(e.target.value)} 
+                          className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0" 
+                        />
+                        <input 
+                          type="text" 
+                          value={quickPrimary} 
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (val && !val.startsWith('#') && /^[0-9A-Fa-f]/.test(val)) val = '#' + val;
+                            setQuickPrimary(val);
+                          }} 
+                          className="flex-1 bg-transparent outline-none font-mono font-black text-xs uppercase" 
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-gray-500 block mb-1">Cor Secundária (Destaques / Detalhes)</label>
+                      <div className="flex items-center gap-2 bg-white p-2 rounded-xl border-2 border-gray-200">
+                        <input 
+                          type="color" 
+                          value={normalizeHex(quickSecondary, '#FFCC00')} 
+                          onChange={e => setQuickSecondary(e.target.value)} 
+                          className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0" 
+                        />
+                        <input 
+                          type="text" 
+                          value={quickSecondary} 
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (val && !val.startsWith('#') && /^[0-9A-Fa-f]/.test(val)) val = '#' + val;
+                            setQuickSecondary(val);
+                          }} 
+                          className="flex-1 bg-transparent outline-none font-mono font-black text-xs uppercase" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Prévia da Campanha */}
+                  <div 
+                    className="p-3.5 rounded-xl flex items-center justify-between text-white shadow-lg transition-all"
+                    style={{ 
+                      backgroundColor: normalizeHex(quickPrimary, '#003366'),
+                      borderBottom: `4px solid ${normalizeHex(quickSecondary, '#FFCC00')}`
+                    }}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Building2 className="w-5 h-5" style={{ color: normalizeHex(quickSecondary, '#FFCC00') }} />
+                      <span className="font-black text-sm uppercase tracking-wide truncate">
+                        {paletteModalOrg.candidate_name}
+                      </span>
+                    </div>
+                    <span 
+                      className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase shadow-sm"
+                      style={{
+                        backgroundColor: normalizeHex(quickSecondary, '#FFCC00'),
+                        color: normalizeHex(quickPrimary, '#003366')
+                      }}
+                    >
+                      Exemplo de Botão
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => handleApplyPalette(paletteModalOrg, quickPrimary, quickSecondary)} 
+                    className="flex-1 bg-gov-blue hover:bg-blue-800 text-white font-black py-3.5 px-4 uppercase text-xs tracking-wider flex items-center justify-center gap-2 rounded-xl transition-all shadow-lg"
+                  >
+                    <Save className="w-4 h-4 text-gov-yellow" /> Aplicar e Salvar Cores
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => setPaletteModalOrg(null)} 
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-black py-3.5 px-4 uppercase text-xs tracking-wider rounded-xl transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

@@ -635,8 +635,8 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
         </div>
       </div>
       {viewMode === 'table' ? (
-        <div className="bg-white shadow-xl border-t-4 border-gov-blue overflow-hidden rounded-2xl">
-          <div className="p-4 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2 rounded-t-2xl">
+        <div className="bg-white shadow-xl border-t-4 border-gov-blue overflow-hidden rounded-none">
+          <div className="p-4 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2 rounded-none">
             <div className="flex items-center gap-3">
               <h3 className="font-black text-gov-blue uppercase text-xs">Desempenho por Seção Eleitoral</h3>
               <span className="text-[8px] font-black uppercase text-gov-blue bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -651,7 +651,7 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUpOrLeave}
             onMouseLeave={handleMouseUpOrLeave}
-            className={`relative rounded-b-2xl overflow-auto select-none transition-[cursor] duration-75 ${
+            className={`relative rounded-none overflow-auto select-none transition-[cursor] duration-75 ${
               isDragging ? 'cursor-grabbing' : 'cursor-grab'
             }`} 
             style={{ maxHeight: '600px' }}
@@ -659,7 +659,7 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
             <table className="w-full text-left min-w-[1400px]">
               <thead>
                 <tr className="bg-gov-blue text-white sticky top-0 z-20">
-                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-30 border-r-2 border-white/20 rounded-tl-xl">Região (Mun-Zona)</th>
+                  <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-0 bg-gov-blue z-30 border-r-2 border-white/20 rounded-none">Região (Mun-Zona)</th>
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap sticky left-[120px] bg-gov-blue z-30 border-r-2 border-white/20">Município / UF</th>
                   <th className="p-3 text-[9px] font-black uppercase">Zona</th>
                   <th className="p-3 text-[9px] font-black uppercase">Seção</th>
@@ -674,14 +674,14 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap text-blue-200">Aptos/Voto</th>
                   <th className="p-3 text-[9px] font-black uppercase whitespace-nowrap text-green-300">Votos/Apoiador</th>
                   <th className="p-3 text-[9px] font-black uppercase text-purple-300">Força</th>
-                  <th className="p-3 text-[9px] font-black uppercase text-red-300 whitespace-nowrap rounded-tr-xl">Ação</th>
+                  <th className="p-3 text-[9px] font-black uppercase text-red-300 whitespace-nowrap">Ação</th>
                 </tr>
               </thead>
               <tbody>
                 {comparisonData.length > 0 ? (
                   comparisonData.map((row, idx) => (
-                    <tr key={idx} className="border-b border-gray-50 hover:bg-gov-bg transition-colors rounded-2xl">
-                      <td className="p-3 text-[10px] font-black text-gray-800 bg-gray-50/50 whitespace-nowrap rounded-2xl sticky left-0 z-10 border-r-2 border-white/20">{row.municipality}-{row.zone}</td>
+                    <tr key={idx} className="border-b border-gray-50 hover:bg-gov-bg transition-colors rounded-none">
+                      <td className="p-3 text-[10px] font-black text-gray-800 bg-gray-50/50 whitespace-nowrap rounded-none sticky left-0 z-10 border-r-2 border-white/20">{row.municipality}-{row.zone}</td>
                       <td className="p-3 text-[10px] font-bold text-gray-700 whitespace-nowrap sticky left-[120px] z-10 border-r-2 border-white/20">{row.municipality}</td>
                       <td className="p-3 text-[11px] font-black text-gov-blue">{row.zone}</td>
                       <td className="p-3 text-[11px] font-black text-gov-blue">{row.section}</td>

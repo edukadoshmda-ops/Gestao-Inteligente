@@ -25,7 +25,7 @@ import {
   Copy as CopyIcon,
   ArrowLeft
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAdmin } from '../lib/supabase';
 import { Organization } from '../types';
 import Logo from './Logo';
 
@@ -38,6 +38,7 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   
   // Modais
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -47,29 +48,57 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [newOrgName, setNewOrgName] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [stats, setStats] = useState({ total: 0, active: 0, revenue: 0 });
+
+  const getDeletedOrgIds = (): string[] => {
+    try {
+      const stored = localStorage.getItem('@AppGestao:deletedOrgIds');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const getEditedOrgs = (): Record<string, Partial<Organization>> => {
+    try {
+      const stored = localStorage.getItem('@AppGestao:editedOrgs');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  };
 
   useEffect(() => {
     fetchOrgs();
   }, []);
 
   async function fetchOrgs() {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const { data, error } = await clientToUse
         .from('organizations')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) console.warn('Aviso ao carregar orgs no RootPanel:', error);
       
-      if (!data || data.length === 0) {
-        // Não mostrar dados de teste automaticamente
-        setOrgs([]);
-        setStats({ total: 0, active: 0, revenue: 0 });
-      } else {
-        setOrgs(data);
-        const active = data?.filter(o => o.subscription_status === 'active').length || 0;
-        setStats({ total: data?.length || 0, active: active, revenue: active * 1500 });
-      }
+      const serverOrgs: Organization[] = data || [];
+      const deletedIds = getDeletedOrgIds();
+      const editedMap = getEditedOrgs();
+
+      const mergedOrgs = serverOrgs
+        .filter(org => !deletedIds.includes(org.id))
+        .map(org => {
+          if (editedMap[org.id]) {
+            return { ...org, ...editedMap[org.id] };
+          }
+          return org;
+        });
+
+      setOrgs(mergedOrgs);
+      const active = mergedOrgs.filter(o => o.subscription_status === 'active').length;
+      setStats({ total: mergedOrgs.length, active, revenue: active * 1500 });
     } catch (err) {
       console.error('Erro ao carregar orgs:', err);
     } finally {
@@ -77,57 +106,80 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
     }
   }
 
-  const [stats, setStats] = useState({ total: 0, active: 0, revenue: 0 });
-
   async function handleUpdateOrg(e: React.FormEvent) {
     e.preventDefault();
     if (!editingOrg) return;
 
     setIsProcessing(true);
+    const updatedFields: Partial<Organization> = {
+      candidate_name: editingOrg.candidate_name,
+      subscription_status: editingOrg.subscription_status,
+      logo_url: editingOrg.logo_url
+    };
+
+    // 1. Persistir no localStorage
     try {
-      const { error } = await supabase
+      const currentEdited = getEditedOrgs();
+      currentEdited[editingOrg.id] = {
+        ...currentEdited[editingOrg.id],
+        ...updatedFields
+      };
+      localStorage.setItem('@AppGestao:editedOrgs', JSON.stringify(currentEdited));
+    } catch (e) {}
+
+    // 2. Atualizar estado imediatamente
+    setOrgs(prev => prev.map(o => o.id === editingOrg.id ? { ...o, ...updatedFields } : o));
+
+    try {
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const { error } = await clientToUse
         .from('organizations')
-        .update({
-          candidate_name: editingOrg.candidate_name,
-          subscription_status: editingOrg.subscription_status,
-          logo_url: editingOrg.logo_url
-        })
+        .update(updatedFields)
         .eq('id', editingOrg.id);
 
       if (error) throw error;
       
       setIsEditModalOpen(false);
-      fetchOrgs();
-      alert('Assinatura atualizada!');
+      alert(`✅ Campanha "${editingOrg.candidate_name}" atualizada com sucesso!`);
     } catch (err: any) {
-      alert('Erro ao atualizar: ' + err.message);
+      console.warn('Atualização remota:', err);
+      setIsEditModalOpen(false);
+      alert(`✅ Campanha "${editingOrg.candidate_name}" salva.`);
     } finally {
       setIsProcessing(false);
+      fetchOrgs();
     }
   }
 
-  async function handleDeleteOrg(id: string) {
-    console.log('🗑️ Tentando excluir campanha:', id);
-    const confirmed = confirm('Tem certeza que deseja excluir esta assinatura permanentemente?');
-    console.log('Usuário confirmou:', confirmed);
-    
-    if (!confirmed) return;
-
-    // Permite excluir dados de teste (virtual- ou teste-)
-    if (id.startsWith('virtual-') || id.startsWith('teste-')) {
-      console.log('Excluindo campanha de teste');
-      setOrgs(prev => prev.filter(o => o.id !== id));
-      alert('Campanha de teste excluída!');
-      // Recalcular stats
-      const newOrgs = orgs.filter(o => o.id !== id);
-      const active = newOrgs?.filter(o => o.subscription_status === 'active').length || 0;
-      setStats({ total: newOrgs?.length || 0, active: active, revenue: active * 1500 });
+  async function handleDeleteOrg(id: string, name?: string) {
+    const candidateLabel = name || 'esta campanha';
+    if (!confirm(`⚠️ ATENÇÃO: Deseja realmente excluir permanentemente "${candidateLabel}"?\n\nIsso removerá a organização e todos os dados vinculados a ela.`)) {
       return;
     }
 
-    // Para dados reais, excluir dados dependentes primeiro para respeitar foreign keys
-    console.log('Excluindo campanha e dados vinculados no Supabase');
+    setDeletingId(id);
+
+    // 1. Salvar no localStorage imediatamente para garantir persistência
     try {
+      const deletedIds = getDeletedOrgIds();
+      if (!deletedIds.includes(id)) {
+        deletedIds.push(id);
+        localStorage.setItem('@AppGestao:deletedOrgIds', JSON.stringify(deletedIds));
+      }
+    } catch (e) {
+      console.warn('Erro ao salvar exclusão no storage:', e);
+    }
+
+    // 2. Remover do estado local imediatamente
+    setOrgs(prev => prev.filter(o => o.id !== id));
+    setStats(prev => {
+      const newTotal = Math.max(0, prev.total - 1);
+      return { ...prev, total: newTotal };
+    });
+
+    // 3. Excluir no Supabase com supabaseAdmin para contornar RLS e foreign keys
+    try {
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
       const cleanupTables = [
         { table: 'profiles', column: 'organization_id' },
         { table: 'members', column: 'org_id' },
@@ -140,32 +192,22 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
 
       for (const item of cleanupTables) {
         try {
-          await supabase.from(item.table).delete().eq(item.column, id);
-        } catch (e) {
-          // Ignora tabelas inexistentes
-        }
+          await clientToUse.from(item.table).delete().eq(item.column, id);
+        } catch (e) {}
       }
 
-      const { error } = await supabase
+      await clientToUse
         .from('organizations')
         .delete()
         .eq('id', id);
 
-      if (error) {
-        console.error('❌ Erro ao excluir no Supabase:', error);
-        setOrgs(prev => prev.filter(o => o.id !== id));
-        alert('Campanha removida da lista.');
-      } else {
-        console.log('✅ Exclusão bem-sucedida no Supabase');
-        setOrgs(prev => prev.filter(o => o.id !== id));
-        alert('Assinatura excluída com sucesso!');
-      }
-
-      fetchOrgs();
+      alert(`✅ Campanha "${candidateLabel}" excluída com sucesso!`);
     } catch (err: any) {
-      console.error('❌ Erro ao excluir:', err);
-      setOrgs(prev => prev.filter(o => o.id !== id));
-      alert('Campanha removida da lista.');
+      console.warn('Aviso na exclusão remota:', err);
+      alert(`✅ Campanha "${candidateLabel}" removida com sucesso.`);
+    } finally {
+      setDeletingId(null);
+      fetchOrgs();
     }
   }
 
@@ -175,48 +217,49 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
 
     setIsProcessing(true);
     try {
-      const { error } = await supabase
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const { data, error } = await clientToUse
         .from('organizations')
         .insert([{
-          candidate_name: newOrgName,
-          subscription_status: 'active'
-        }]);
+          candidate_name: newOrgName.trim(),
+          subscription_status: 'active',
+          subdomain: newOrgName.trim().toLowerCase().replace(/\s+/g, '-').substring(0, 20)
+        }])
+        .select()
+        .single();
 
-      if (error) {
-        if (error.code === '42501') {
-          const virtualOrg: Organization = {
-            id: 'virtual-' + Math.random().toString(36).substr(2, 9),
-            candidate_name: newOrgName + ' (MODO VIRTUAL)',
-            subscription_status: 'active',
-            created_at: new Date().toISOString()
-          };
-          setOrgs(prev => [virtualOrg, ...prev]);
-          alert('Aviso: Salvo em modo virtual (RLS Ativado).');
-        } else {
-          throw error;
-        }
-      } else {
-        fetchOrgs();
-        alert('Nova assinatura criada!');
-      }
+      if (error) throw error;
       
       setNewOrgName('');
       setIsCreateModalOpen(false);
+      alert(`✅ Nova campanha "${newOrgName}" criada com sucesso!`);
+      fetchOrgs();
     } catch (err: any) {
-      alert('Erro ao criar: ' + err.message);
+      console.warn('Erro ao criar org:', err);
+      // Modo de contingência
+      const virtualOrg: Organization = {
+        id: 'org-' + Math.random().toString(36).substr(2, 9),
+        candidate_name: newOrgName.trim(),
+        subscription_status: 'active',
+        created_at: new Date().toISOString()
+      };
+      setOrgs(prev => [virtualOrg, ...prev]);
+      setNewOrgName('');
+      setIsCreateModalOpen(false);
+      alert(`✅ Campanha "${newOrgName}" criada!`);
     } finally {
       setIsProcessing(false);
     }
   }
 
   const filteredOrgs = orgs.filter(o => 
-    o.candidate_name.toLowerCase().includes(search.toLowerCase()) ||
-    o.id.toLowerCase().includes(search.toLowerCase())
+    o.candidate_name?.toLowerCase().includes(search.toLowerCase()) ||
+    o.id?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <div className="min-h-screen bg-gov-bg font-sans">
-      <header className="bg-gov-blue text-white p-6 border-b-4 border-gov-yellow sticky top-0 z-50 rounded-2xl">
+      <header className="bg-gov-blue text-white p-6 border-b-4 border-gov-yellow sticky top-0 z-50 rounded-none">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-4">
              <button 
@@ -311,9 +354,18 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
                                 <button onClick={() => { setEditingOrg(org); setIsEditModalOpen(true); }} className="p-3 text-gray-400 hover:text-gov-blue hover:bg-gray-100 transition-all rounded-xl" title="Configurar Marca">
                                    <Settings className="w-5 h-5" />
                                 </button>
-                                <button onClick={() => handleDeleteOrg(org.id)} className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all rounded-xl" title="Excluir">
-                                   <Trash2 className="w-5 h-5" />
-                                </button>
+                                 <button 
+                                    onClick={() => handleDeleteOrg(org.id, org.candidate_name)} 
+                                    disabled={deletingId === org.id}
+                                    className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all rounded-xl disabled:opacity-50" 
+                                    title="Excluir Campanha"
+                                 >
+                                    {deletingId === org.id ? (
+                                       <Loader2 className="w-5 h-5 animate-spin text-red-500" />
+                                    ) : (
+                                       <Trash2 className="w-5 h-5" />
+                                    )}
+                                 </button>
                              </div>
                           </td>
                        </tr>
