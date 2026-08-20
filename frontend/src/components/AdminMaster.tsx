@@ -880,7 +880,7 @@ export default function AdminMaster() {
                     </button>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Coord. Geral:</span>
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Cadastro (Coord. Geral):</span>
                     <button 
                       onClick={() => {
                         const link = `${window.location.origin}?org=${org.id}&signup=true&role=general_coordination`;
@@ -894,7 +894,7 @@ export default function AdminMaster() {
                     </button>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Coord. Área:</span>
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Cadastro (Coord. Área):</span>
                     <button 
                       onClick={() => {
                         const link = `${window.location.origin}?org=${org.id}&signup=true&role=area_coordinator`;
