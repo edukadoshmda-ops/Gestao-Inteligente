@@ -330,12 +330,12 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
             <span className="text-xs font-black text-gov-blue uppercase">Arquivo Pronto! Digite algo ou envie direto.</span>
           </motion.div>
         )}
-        <div className="flex gap-2 items-center">
-          <div className="relative">
+        <div className="flex gap-2 items-center w-full">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className={`p-3 transition-all ${showEmojiPicker ? 'bg-gov-yellow text-gov-blue' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              className={`p-3 transition-all rounded-full flex items-center justify-center w-11 h-11 ${showEmojiPicker ? 'bg-gov-yellow text-gov-blue' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
               title="Inserir Emoji"
             >
               😊
@@ -376,7 +376,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
           <button
             type="button"
             onClick={() => document.getElementById('chat-image-upload')?.click()}
-            className="p-3 bg-gray-100 text-gray-500 hover:bg-gov-blue hover:text-white transition-all shadow-sm rounded-full"
+            className="p-3 bg-gray-100 text-gray-500 hover:bg-gov-blue hover:text-white transition-all shadow-sm rounded-full shrink-0 flex items-center justify-center w-11 h-11"
             title="Enviar Imagem"
           >
             <Camera className="w-5 h-5" />
@@ -384,7 +384,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
           <button
             type="button"
             onClick={toggleRecording}
-            className={`p-3 transition-all shadow-sm rounded-full ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gov-blue hover:text-white'}`}
+            className={`p-3 transition-all shadow-sm rounded-full shrink-0 flex items-center justify-center w-11 h-11 ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gov-blue hover:text-white'}`}
             title={isRecording ? "Parar Gravação" : "Gravar Áudio"}
           >
             {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -393,16 +393,16 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Digite sua mensagem para a equipe..."
-            className="flex-1 bg-gray-50 border-2 border-gray-100 p-3 text-xs font-bold outline-none focus:border-gov-blue transition-all rounded-xl"
+            placeholder="Mensagem..."
+            className="flex-1 min-w-[60px] bg-gray-50 border-2 border-gray-100 p-3 text-xs font-bold outline-none focus:border-gov-blue transition-all rounded-xl"
           />
           <button
             type="submit"
             disabled={!newMessage.trim() && !pendingMedia}
-            className="bg-gov-blue text-white px-6 py-3 font-black uppercase text-[10px] tracking-widest hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-md rounded-xl"
+            className="bg-gov-blue text-white p-3 sm:px-6 sm:py-3 font-black uppercase text-[10px] tracking-widest hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-md rounded-full sm:rounded-xl shrink-0 h-11 sm:w-auto w-11"
           >
             <Send className="w-4 h-4" />
-            Enviar
+            <span className="hidden sm:inline">Enviar</span>
           </button>
         </div>
       </form>
