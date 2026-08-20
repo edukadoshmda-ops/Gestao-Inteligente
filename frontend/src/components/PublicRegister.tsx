@@ -6,6 +6,7 @@ import { Save, Phone, Users, Hash, Mail, CheckCircle, Camera, Loader2, ArrowLeft
 import { createWorker } from 'tesseract.js';
 import { motion, AnimatePresence } from 'motion/react';
 import Logo from './Logo';
+import { applyAppTheme, getStoredTheme } from '../lib/theme';
 
 interface PublicRegisterProps {
   onBack?: () => void;
@@ -34,7 +35,7 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
   const [activeVoiceField, setActiveVoiceField] = useState<string | null>(null);
   const [scanFeedback, setScanFeedback] = useState<string | null>(null);
 
-  // Carregar dados da Organização via URL
+  // Carregar dados da Organização via URL ou LocalStorage e aplicar tema
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const orgId = urlParams.get('org');
@@ -46,10 +47,33 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
         .eq('id', orgId)
         .maybeSingle()
         .then(({ data }) => {
-          if (data) setOrg(data);
+          if (data) {
+            setOrg(data);
+            if (data.theme_primary || data.theme_color) {
+              applyAppTheme(data.theme_primary || data.theme_color, data.theme_secondary, data.theme_bg);
+            }
+          }
+          setOrgLoading(false);
+        })
+        .catch(() => {
           setOrgLoading(false);
         });
     } else {
+      try {
+        const savedOrg = localStorage.getItem('forja_current_organization');
+        if (savedOrg) {
+          const parsed = JSON.parse(savedOrg);
+          setOrg(parsed);
+          if (parsed.theme_primary || parsed.theme_color) {
+            applyAppTheme(parsed.theme_primary || parsed.theme_color, parsed.theme_secondary, parsed.theme_bg);
+          }
+        } else {
+          const stored = getStoredTheme();
+          if (stored.primary) {
+            applyAppTheme(stored.primary, stored.secondary, stored.bg);
+          }
+        }
+      } catch {}
       setOrgLoading(false);
     }
   }, []);
@@ -300,26 +324,32 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     );
   }
 
+  const primaryColor = org?.theme_primary || org?.theme_color || 'var(--color-gov-blue, #0d1b3e)';
+  const secondaryColor = org?.theme_secondary || 'var(--color-gov-yellow, #facc15)';
   const campaignName = org?.candidate_name || 'Campanha Eleitoral';
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-gov-bg flex items-center justify-center p-6">
+      <div className="min-h-screen bg-gov-bg flex items-center justify-center p-4 sm:p-6">
         <motion.div 
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white p-12 border-4 border-gov-blue shadow-2xl text-center max-w-md w-full rounded-2xl"
+          className="bg-white p-8 sm:p-12 border-4 shadow-2xl text-center max-w-md w-full rounded-2xl"
+          style={{ borderColor: primaryColor }}
         >
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-green-500">
-            <CheckCircle className="w-10 h-10 text-green-500" />
+          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-green-500">
+            <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-green-500" />
           </div>
-          <h2 className="text-2xl font-black text-gov-blue uppercase mb-4">Cadastro Realizado!</h2>
+          <h2 className="text-xl sm:text-2xl font-black uppercase mb-4" style={{ color: primaryColor }}>
+            Cadastro Realizado!
+          </h2>
           <p className="text-gray-500 font-bold uppercase text-xs tracking-widest leading-relaxed">
-            Seus dados foram enviados com sucesso para a base <span className="text-gov-blue">{campaignName}</span>.
+            Seus dados foram enviados com sucesso para a base <span style={{ color: primaryColor }}>{campaignName}</span>.
           </p>
           <button 
             onClick={() => setSubmitted(false)}
-            className="mt-8 w-full py-4 bg-gov-blue text-white font-black uppercase text-sm tracking-widest hover:bg-blue-800 transition-all rounded-full"
+            className="mt-8 w-full py-4 text-white font-black uppercase text-xs sm:text-sm tracking-widest transition-all rounded-full shadow-lg hover:opacity-90 active:scale-95 cursor-pointer"
+            style={{ backgroundColor: primaryColor }}
           >
             Fazer Novo Cadastro
           </button>
@@ -329,75 +359,123 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gov-bg p-6 md:p-12 flex flex-col items-center">
-      <div className="w-full max-w-2xl mb-8 flex items-center gap-4">
+    <div className="min-h-screen bg-gov-bg px-4 py-6 sm:p-8 md:p-12 flex flex-col items-center">
+      {/* Top Branding Bar */}
+      <div className="w-full max-w-2xl mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4">
         {org?.logo_url ? (
-          <img src={org.logo_url} className="w-16 h-16 object-contain" alt="Logo" />
+          <img 
+            src={org.logo_url} 
+            className="w-14 h-14 sm:w-16 sm:h-16 object-contain rounded-2xl shadow-md shrink-0 bg-white p-1 border border-gray-100" 
+            alt="Logo" 
+          />
         ) : (
-          <Logo className="w-12 h-12 shadow-lg rounded-2xl" />
+          <Logo className="w-12 h-12 sm:w-14 sm:h-14 shadow-md rounded-2xl shrink-0" />
         )}
-        <div>
-          <h1 className="text-2xl font-black text-gov-blue uppercase leading-none">{campaignName}</h1>
-          <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mt-1">Apoio Popular e Inteligência</p>
+        <div className="min-w-0">
+          <h1 
+            className="text-xl sm:text-2xl font-black uppercase leading-tight truncate"
+            style={{ color: primaryColor }}
+          >
+            {campaignName}
+          </h1>
+          <p className="text-[10px] sm:text-xs font-black text-blue-500 uppercase tracking-[0.2em] sm:tracking-[0.3em] mt-0.5">
+            Apoio Popular e Inteligência
+          </p>
         </div>
       </div>
 
+      {/* Main Form Card */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white border-2 border-gov-blue shadow-xl max-w-2xl w-full overflow-hidden rounded-2xl"
+        className="bg-white border-2 shadow-xl max-w-2xl w-full overflow-hidden rounded-2xl"
+        style={{ borderColor: primaryColor }}
       >
-        <div className="bg-gov-blue p-6 text-white border-b-4 border-gov-yellow flex items-center gap-4 rounded-2xl">
+        {/* Card Header Banner - Always colored, visible on both PC and Mobile */}
+        <div 
+          className="p-4 sm:p-6 text-white border-b-4 flex items-center gap-3 sm:gap-4 rounded-t-2xl shadow-sm"
+          style={{ 
+            backgroundColor: primaryColor,
+            borderBottomColor: secondaryColor 
+          }}
+        >
           <button 
             type="button"
             onClick={onBack || (() => setFormData(initialState))}
-            className="p-2 hover:bg-white/10 transition-all border border-white/20 rounded-full group"
+            className="p-2 sm:p-2.5 bg-black/15 hover:bg-white/20 active:scale-95 transition-all border border-white/25 rounded-full group shrink-0 cursor-pointer"
             title={onBack ? "Voltar" : "Limpar Formulário"}
           >
-            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-white group-hover:-translate-x-0.5 transition-transform" />
           </button>
           <div>
-            <h2 className="text-xl font-black uppercase">Ficha de Identificação</h2>
-            <p className="text-[10px] opacity-70 uppercase font-bold tracking-widest mt-1">Sua participação é fundamental</p>
+            <h2 className="text-base sm:text-xl font-black uppercase tracking-tight text-white leading-tight">
+              Ficha de Identificação
+            </h2>
+            <p className="text-[9px] sm:text-[10px] text-white/80 uppercase font-bold tracking-wider sm:tracking-widest mt-0.5">
+              Sua participação é fundamental
+            </p>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-8 space-y-5 sm:space-y-6">
           <AnimatePresence>
             {scanFeedback && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="bg-blue-50 border-2 border-gov-blue text-gov-blue p-4 rounded-2xl shadow-md flex items-center gap-3"
+                className="bg-blue-50 border-2 p-3 sm:p-4 rounded-2xl shadow-sm flex items-center gap-3"
+                style={{ borderColor: primaryColor }}
               >
-                <Sparkles className="w-5 h-5 text-gov-yellow shrink-0 animate-spin-slow" />
-                <p className="text-xs font-black uppercase tracking-wider">{scanFeedback}</p>
+                <Sparkles className="w-5 h-5 shrink-0 animate-spin-slow" style={{ color: secondaryColor }} />
+                <p className="text-xs font-black uppercase tracking-wider" style={{ color: primaryColor }}>{scanFeedback}</p>
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="bg-gray-50 p-6 border-2 border-dashed border-gov-blue/20 flex flex-col items-center justify-center gap-4 text-center rounded-2xl">
-            <p className="text-[9px] font-black uppercase text-gov-blue/50 tracking-widest">Atalho: Fotografe seu título para preencher automaticamente</p>
+          {/* Atalho Escanear Título */}
+          <div 
+            className="bg-gray-50/80 p-4 sm:p-6 border-2 border-dashed flex flex-col items-center justify-center gap-3 sm:gap-4 text-center rounded-2xl"
+            style={{ borderColor: `${primaryColor}40` }}
+          >
+            <p 
+              className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider"
+              style={{ color: primaryColor }}
+            >
+              Atalho: Fotografe seu título para preencher automaticamente
+            </p>
             <input type="file" id="public-scan" accept="image/*" capture="environment" onChange={handleScan} className="hidden" />
             <button
               type="button"
               disabled={isScanning}
               onClick={() => document.getElementById('public-scan')?.click()}
-              className="flex items-center gap-3 px-6 py-3 bg-white border-2 border-gov-blue font-black uppercase text-[10px] tracking-widest hover:bg-gov-blue hover:text-white transition-all shadow-md rounded-full"
+              className="flex items-center gap-2.5 px-5 sm:px-6 py-3 bg-white border-2 font-black uppercase text-[10px] sm:text-xs tracking-wider transition-all shadow-md rounded-full hover:bg-gray-50 active:scale-95 cursor-pointer"
+              style={{ borderColor: primaryColor, color: primaryColor }}
             >
-              {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4 text-gov-yellow" />}
+              {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" style={{ color: secondaryColor }} />}
               {isScanning ? 'Lendo dados do Título...' : 'Escanear Foto do Título'}
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             {/* Nome Completo */}
             <div className="md:col-span-2">
-              <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Nome Completo</label>
+              <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                Nome Completo
+              </label>
               <div className="relative flex items-center">
-                <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="Digite seu nome completo" />
-                <button type="button" onClick={() => startFieldDictation('name')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'name' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                <input 
+                  required 
+                  value={formData.name} 
+                  onChange={e => setFormData({...formData, name: e.target.value})} 
+                  className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                  placeholder="Digite seu nome completo" 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => startFieldDictation('name')} 
+                  className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'name' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                >
                   <Mic className="w-4 h-4" />
                 </button>
               </div>
@@ -405,10 +483,22 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
 
             {/* Telefone */}
             <div>
-              <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Telefone (WhatsApp)</label>
+              <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                Telefone (WhatsApp)
+              </label>
               <div className="relative flex items-center">
-                <input required value={formData.phone} onChange={handlePhoneChange} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="(00) 00000-0000" />
-                <button type="button" onClick={() => startFieldDictation('phone')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'phone' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                <input 
+                  required 
+                  value={formData.phone} 
+                  onChange={handlePhoneChange} 
+                  className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                  placeholder="(00) 00000-0000" 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => startFieldDictation('phone')} 
+                  className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'phone' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                >
                   <Mic className="w-4 h-4" />
                 </button>
               </div>
@@ -416,10 +506,22 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
 
             {/* Data de Nascimento */}
             <div>
-              <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Data de Nascimento</label>
+              <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                Data de Nascimento
+              </label>
               <div className="relative flex items-center">
-                <input required type="date" value={formData.birthDate} onChange={e => setFormData({...formData, birthDate: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" />
-                <button type="button" onClick={() => startFieldDictation('birthDate')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'birthDate' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                <input 
+                  required 
+                  type="date" 
+                  value={formData.birthDate} 
+                  onChange={e => setFormData({...formData, birthDate: e.target.value})} 
+                  className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => startFieldDictation('birthDate')} 
+                  className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'birthDate' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                >
                   <Mic className="w-4 h-4" />
                 </button>
               </div>
@@ -427,10 +529,23 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
 
             {/* E-mail */}
             <div>
-              <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">E-mail</label>
+              <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                E-mail
+              </label>
               <div className="relative flex items-center">
-                <input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="email@exemplo.com" />
-                <button type="button" onClick={() => startFieldDictation('email')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'email' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                <input 
+                  required 
+                  type="email" 
+                  value={formData.email} 
+                  onChange={e => setFormData({...formData, email: e.target.value})} 
+                  className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                  placeholder="email@exemplo.com" 
+                />
+                <button 
+                  type="button" 
+                  onClick={() => startFieldDictation('email')} 
+                  className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'email' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                >
                   <Mic className="w-4 h-4" />
                 </button>
               </div>
@@ -438,15 +553,26 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
 
             {/* Gênero */}
             <div>
-              <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Gênero</label>
+              <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                Gênero
+              </label>
               <div className="relative flex items-center">
-                <select required value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm appearance-none rounded-2xl">
+                <select 
+                  required 
+                  value={formData.gender} 
+                  onChange={e => setFormData({...formData, gender: e.target.value})} 
+                  className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm appearance-none rounded-2xl transition-all"
+                >
                   <option value="">Selecione...</option>
                   <option value="Masculino">Masculino</option>
                   <option value="Feminino">Feminino</option>
                   <option value="Outro">Outro</option>
                 </select>
-                <button type="button" onClick={() => startFieldDictation('gender')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'gender' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                <button 
+                  type="button" 
+                  onClick={() => startFieldDictation('gender')} 
+                  className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'gender' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                >
                   <Mic className="w-4 h-4" />
                 </button>
               </div>
@@ -454,14 +580,31 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
 
             {/* Título de Eleitor */}
             <div className="md:col-span-2">
-              <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Título de Eleitor</label>
+              <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                Título de Eleitor
+              </label>
               <div className="relative flex items-center">
-                <input value={formData.voterId} onChange={e => setFormData({...formData, voterId: e.target.value.replace(/\D/g, '')})} className="w-full pl-4 pr-24 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="0000 0000 0000" />
+                <input 
+                  value={formData.voterId} 
+                  onChange={e => setFormData({...formData, voterId: e.target.value.replace(/\D/g, '')})} 
+                  className="w-full pl-4 pr-24 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                  placeholder="0000 0000 0000" 
+                />
                 <div className="absolute right-2.5 flex items-center gap-1">
-                  <button type="button" onClick={() => document.getElementById('public-scan')?.click()} title="Ler Título por Foto" className="p-1.5 bg-gov-blue text-white rounded-lg flex items-center gap-1 text-[9px] font-bold">
+                  <button 
+                    type="button" 
+                    onClick={() => document.getElementById('public-scan')?.click()} 
+                    title="Ler Título por Foto" 
+                    className="p-1.5 text-white rounded-lg flex items-center gap-1 text-[9px] font-bold shadow-sm active:scale-95 cursor-pointer"
+                    style={{ backgroundColor: primaryColor }}
+                  >
                     <Camera className="w-3.5 h-3.5" /> Foto
                   </button>
-                  <button type="button" onClick={() => startFieldDictation('voterId')} className={`p-1.5 rounded-full ${activeVoiceField === 'voterId' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <button 
+                    type="button" 
+                    onClick={() => startFieldDictation('voterId')} 
+                    className={`p-1.5 rounded-full transition-colors ${activeVoiceField === 'voterId' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                  >
                     <Mic className="w-4 h-4" />
                   </button>
                 </div>
@@ -471,19 +614,41 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
             {/* Seção e Zona */}
             <div className="grid grid-cols-2 gap-4 md:col-span-2">
               <div>
-                <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Seção</label>
+                <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                  Seção
+                </label>
                 <div className="relative flex items-center">
-                  <input value={formData.voterSection} onChange={e => setFormData({...formData, voterSection: e.target.value.replace(/\D/g, '')})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="0000" />
-                  <button type="button" onClick={() => startFieldDictation('voterSection')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'voterSection' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <input 
+                    value={formData.voterSection} 
+                    onChange={e => setFormData({...formData, voterSection: e.target.value.replace(/\D/g, '')})} 
+                    className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                    placeholder="0000" 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => startFieldDictation('voterSection')} 
+                    className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'voterSection' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                  >
                     <Mic className="w-4 h-4" />
                   </button>
                 </div>
               </div>
               <div>
-                <label className="text-[9px] font-black uppercase text-gov-blue tracking-widest mb-1.5 block">Zona</label>
+                <label className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: primaryColor }}>
+                  Zona
+                </label>
                 <div className="relative flex items-center">
-                  <input value={formData.voterZone} onChange={e => setFormData({...formData, voterZone: e.target.value.replace(/\D/g, '')})} className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl" placeholder="000" />
-                  <button type="button" onClick={() => startFieldDictation('voterZone')} className={`absolute right-3 p-1.5 rounded-full ${activeVoiceField === 'voterZone' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gov-blue'}`}>
+                  <input 
+                    value={formData.voterZone} 
+                    onChange={e => setFormData({...formData, voterZone: e.target.value.replace(/\D/g, '')})} 
+                    className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 
+                    placeholder="000" 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => startFieldDictation('voterZone')} 
+                    className={`absolute right-3 p-1.5 rounded-full transition-colors ${activeVoiceField === 'voterZone' ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-gray-600'}`}
+                  >
                     <Mic className="w-4 h-4" />
                   </button>
                 </div>
@@ -491,7 +656,15 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
             </div>
           </div>
 
-          <button type="submit" className="w-full py-4 bg-gov-yellow text-gov-blue font-black uppercase text-xs tracking-widest shadow-md hover:bg-yellow-300 transition-all border-b-4 border-gov-blue/20 rounded-2xl">
+          <button 
+            type="submit" 
+            className="w-full py-4 font-black uppercase text-xs sm:text-sm tracking-widest shadow-lg transition-all rounded-2xl active:scale-[0.99] cursor-pointer"
+            style={{
+              backgroundColor: secondaryColor,
+              color: '#0d1b3e',
+              borderBottom: '4px solid rgba(0,0,0,0.15)'
+            }}
+          >
             Confirmar Apoio
           </button>
         </form>
