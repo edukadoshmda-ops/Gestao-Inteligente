@@ -879,6 +879,34 @@ export default function AdminMaster() {
                       Copiar Cadastro
                     </button>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Coord. Geral:</span>
+                    <button 
+                      onClick={() => {
+                        const link = `${window.location.origin}?org=${org.id}&signup=true&role=general_coordination`;
+                        navigator.clipboard.writeText(link);
+                        alert(`📋 Link de Cadastro de Coord. Geral copiado!\n\n${link}`);
+                      }}
+                      className="text-[9px] font-black text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded-lg border border-purple-200 transition-colors"
+                      title="Copiar link de cadastro para Coordenadores Gerais"
+                    >
+                      Copiar Cadastro
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] font-black text-gray-400 uppercase">Link Coord. Área:</span>
+                    <button 
+                      onClick={() => {
+                        const link = `${window.location.origin}?org=${org.id}&signup=true&role=area_coordinator`;
+                        navigator.clipboard.writeText(link);
+                        alert(`📋 Link de Cadastro de Coord. de Área copiado!\n\n${link}`);
+                      }}
+                      className="text-[9px] font-black text-orange-700 hover:text-orange-900 bg-orange-50 hover:bg-orange-100 px-2 py-0.5 rounded-lg border border-orange-200 transition-colors"
+                      title="Copiar link de cadastro para Coordenadores de Área"
+                    >
+                      Copiar Cadastro
+                    </button>
+                  </div>
                 </div>
               </div>
 

@@ -30,7 +30,9 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [brandOrg, setBrandOrg] = useState<any>(null);
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(() => {
+    return new URLSearchParams(window.location.search).get('signup') === 'true';
+  });
   const [showThemes, setShowThemes] = useState(false);
   const [showResendButton, setShowResendButton] = useState(false);
 
@@ -158,11 +160,17 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
       }
 
       if (isSignUp) {
+        const urlRole = new URLSearchParams(window.location.search).get('role');
+        const role = urlRole || 'coordination'; // default
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
           options: {
-            emailRedirectTo: window.location.origin
+            emailRedirectTo: window.location.origin,
+            data: {
+              role: role,
+              organization_id: brandOrg?.id
+            }
           }
         });
         if (signUpError) throw signUpError;
