@@ -12,21 +12,15 @@ export interface ThemeConfig {
 
 export const PARTY_THEMES: ThemeConfig[] = [
   { name: 'Azul & Amarelo Clássico (PL / PP / Republicanos)', primary: '#003366', secondary: '#FFCC00', bg: '#eff6ff' },
-  { name: 'Verde & Ciano Neon (Esperança / Inovação)', primary: '#034f12', secondary: '#00fffb', bg: '#f0fdf4' },
   { name: 'Verde & Amarelo Brasil (Patriota / Oficial)', primary: '#006b3f', secondary: '#ffdf00', bg: '#f0fdf4' },
-  { name: 'Vermelho & Amarelo (PT / PCdoB)', primary: '#b91c1c', secondary: '#fef08a', bg: '#fef2f2' },
-  { name: 'Vermelho & Branco (PSOL / Trabalhista)', primary: '#dc2626', secondary: '#ffffff', bg: '#fef2f2' },
+  { name: 'Vermelho (Trabalhista)', primary: '#dc2626', secondary: '#ffffff', bg: '#fef2f2' },
   { name: 'Laranja & Azul Real (NOVO / Avante)', primary: '#ea580c', secondary: '#0b2545', bg: '#fff7ed' },
   { name: 'Azul Celeste & Dourado (PSDB / União Brasil)', primary: '#0284c7', secondary: '#f59e0b', bg: '#f0f9ff' },
   { name: 'Amarelo & Azul Noturno (PSB / PDT)', primary: '#eab308', secondary: '#0f172a', bg: '#fefce8' },
   { name: 'Roxo & Turquesa (Renovação / Futuro)', primary: '#6b21a8', secondary: '#06b6d4', bg: '#faf5ff' },
   { name: 'Magenta & Índigo (Cidadania / Mulheres)', primary: '#be185d', secondary: '#4338ca', bg: '#fdf2f8' },
-  { name: 'Bordô / Vinho & Ouro (Solidariedade)', primary: '#881337', secondary: '#fbbf24', bg: '#fff1f2' },
   { name: 'Verde Esmeralda & Dourado (Sustentabilidade)', primary: '#047857', secondary: '#facc15', bg: '#f0fdf4' },
-  { name: 'Azul Petróleo & Coral (Centro / Moderado)', primary: '#0f766e', secondary: '#fb923c', bg: '#f0fdfa' },
   { name: 'Grafite & Ciano Elétrico (Podemos / PSD)', primary: '#1e293b', secondary: '#38bdf8', bg: '#f8fafc' },
-  { name: 'Amarelo Ouro & Preto (Impacto / Força)', primary: '#d97706', secondary: '#18181b', bg: '#fffbeb' },
-  { name: 'Azul Marinho & Verde Neon (Tecnologia / Gestão)', primary: '#0f172a', secondary: '#22c55e', bg: '#f8fafc' },
 ];
 
 export const DEFAULT_THEME: ThemeConfig = {
