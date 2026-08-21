@@ -23,6 +23,7 @@ export interface Organization {
 export interface Profile {
   id: string;
   org_id: string;
+  organization_id?: string;
   full_name: string;
   email?: string;
   role: 'super_admin' | 'candidate' | 'general_coordination' | 'area_coordinator' | 'coordinator';

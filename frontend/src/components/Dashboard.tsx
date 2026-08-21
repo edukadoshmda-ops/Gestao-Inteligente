@@ -64,10 +64,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   });
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: '', visible: false });
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showCoordShareModal, setShowCoordShareModal] = useState(false);
   const [showBulkWhatsAppModal, setShowBulkWhatsAppModal] = useState(false);
   const [showBirthdayModal, setShowBirthdayModal] = useState(false);
   const [bulkMessage, setBulkMessage] = useState(`Olá! Gostaria de conversar sobre a campanha ${organization?.candidate_name || 'Campanha Eleitoral'}.`);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [copyCoordSuccess, setCopyCoordSuccess] = useState(false);
   const [systemNotice, setSystemNotice] = useState<{ title: string, msg: string } | null>(null);
 
   const isSuperAdmin = username.toLowerCase() === 'edukadoshmda@gmail.com' || username.toLowerCase() === 'admin' || profile.email?.toLowerCase() === 'edukadoshmda@gmail.com' || profile.role === 'super_admin';
@@ -84,6 +86,38 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
     return null;
   }, [coordinators, profile]);
+
+  const effectiveOrgId = useMemo(() => {
+    if (organization?.id && organization.id !== 'demo-org' && organization.id !== 'undefined') {
+      return organization.id;
+    }
+    if (profile?.organization_id && profile.organization_id !== 'demo-org') {
+      return profile.organization_id;
+    }
+    if (profile?.org_id && profile.org_id !== 'demo-org') {
+      return profile.org_id;
+    }
+    const urlOrg = new URLSearchParams(window.location.search).get('org');
+    if (urlOrg && urlOrg !== 'demo-org') {
+      return urlOrg;
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem('forja_current_organization') || '{}');
+      if (saved?.id && saved.id !== 'demo-org') return saved.id;
+    } catch {}
+    return '6de1ca5c-a3fd-43e1-90ef-4aca4afb2238';
+  }, [organization, profile]);
+
+  const effectiveCandidateName = useMemo(() => {
+    if (organization?.candidate_name && organization.candidate_name !== 'Visitante' && organization.candidate_name !== 'Administrador') {
+      return organization.candidate_name;
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem('forja_current_organization') || '{}');
+      if (saved?.candidate_name && saved.candidate_name !== 'Visitante') return saved.candidate_name;
+    } catch {}
+    return 'Gestão Inteligente';
+  }, [organization]);
 
   // Função para formatar automaticamente para o padrão internacional do WhatsApp (55...)
   const formatWhatsAppNumber = (phone: string) => {
@@ -325,6 +359,14 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
   const handleAddCoordinator = async (coordData: Omit<Coordinator, 'id' | 'createdAt'>) => {
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+    const coordEmail = coordData.email?.trim().toLowerCase();
+    const coordPass = (coordData as any).password;
+
+    if (coordEmail && coordPass) {
+      localStorage.setItem(`@AppGestao:userPass_${coordEmail}`, coordPass);
+      localStorage.setItem(`@AppGestao:coordPass_${coordEmail}`, coordPass);
+    }
+
     if (selectedCoordinator) {
       const updated = coordinators.map(c =>
         c.id === selectedCoordinator.id ? { ...c, ...coordData } : c
@@ -688,7 +730,14 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                   <div className="space-y-6">
                     <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 rounded-2xl">
                       <h3 className="text-xl font-black text-gov-blue uppercase">Gestão de Coordenadores</h3>
-                      <div className="flex gap-2 w-full sm:w-auto">
+                      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() => setShowCoordShareModal(true)}
+                          className="bg-green-600 text-white px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-green-700 transition-all flex-shrink-0 shadow-sm"
+                          title="Gerar e compartilhar link para cadastro de novos coordenadores"
+                        >
+                          <Share2 className="w-4 h-4 text-green-200" /> Link de Cadastro
+                        </button>
                         {isSuperAdmin && (
                           <button
                             onClick={handleClearCoordinators}
@@ -780,7 +829,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 ) : activeTab === 'election_day' ? (
                   <ElectionDay members={members} />
                 ) : activeTab === 'settings' ? (
-                  <Settings username={username} organization={organization} />
+                  <Settings username={username} organization={organization} profile={profile} />
                 ) : activeTab === 'admin_master' && permissions.canAccessAdminMaster ? (
                   <AdminMaster />
                 ) : (
@@ -822,19 +871,82 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 Envie este link para sua equipe ou em grupos de WhatsApp para que os apoiadores se cadastrem sozinhos.
               </p>
               <div className="bg-gray-50 p-4 border-2 border-dashed border-gov-blue/20 mb-6 break-all text-[10px] font-mono font-bold text-blue-600 select-all rounded-2xl">
-                {window.location.origin}?org={organization?.id}
+                {`${window.location.origin}?public=true&org=${effectiveOrgId}`}
               </div>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}?org=${organization?.id}`);
+                  navigator.clipboard.writeText(`${window.location.origin}?public=true&org=${effectiveOrgId}`);
                   setCopySuccess(true);
                   setTimeout(() => setCopySuccess(false), 2000);
                 }}
-                className={`w-full py-4 ${copySuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg`}
+                className={`w-full py-4 ${copySuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg rounded-xl`}
               >
                 {copySuccess ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 {copySuccess ? 'Copiado para a área de transferência!' : 'Copiar Link para WhatsApp'}
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Compartilhamento de Link de Coordenadores */}
+      <AnimatePresence>
+        {showCoordShareModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gov-blue/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white p-8 border-4 border-gov-yellow max-w-md w-full text-center shadow-2xl relative rounded-3xl"
+            >
+              <button
+                onClick={() => setShowCoordShareModal(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gov-blue p-1 rounded-full hover:bg-gray-100 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="w-16 h-16 bg-yellow-100 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner">
+                <Users className="w-8 h-8 text-gov-blue" />
+              </div>
+              <h3 className="text-xl font-black text-gov-blue uppercase mb-2">Link de Cadastro de Coordenador</h3>
+              <p className="text-[11px] text-gray-500 mb-5 font-bold uppercase tracking-wide leading-relaxed">
+                Envie este link para suas lideranças para que elas façam seu próprio cadastro de coordenador na campanha.
+              </p>
+
+              {/* Link Box */}
+              <div className="bg-gray-50 p-4 border-2 border-dashed border-gov-yellow/60 mb-5 break-all text-[11px] font-mono font-bold text-gov-blue select-all rounded-2xl">
+                {`${window.location.origin}?coord_register=true&org=${effectiveOrgId}${networkFilter ? `&network=${profile.id}` : ''}`}
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const coordLink = `${window.location.origin}?coord_register=true&org=${effectiveOrgId}${networkFilter ? `&network=${profile.id}` : ''}`;
+                    navigator.clipboard.writeText(coordLink);
+                    setCopyCoordSuccess(true);
+                    setTimeout(() => setCopyCoordSuccess(false), 2500);
+                  }}
+                  className={`w-full py-3.5 ${copyCoordSuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-md rounded-xl`}
+                >
+                  {copyCoordSuccess ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-gov-yellow" />}
+                  {copyCoordSuccess ? 'Link Copiado com Sucesso!' : 'Copiar Link do Formulário'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const coordLink = `${window.location.origin}?coord_register=true&org=${effectiveOrgId}${networkFilter ? `&network=${profile.id}` : ''}`;
+                    const msg = `Olá! Faça seu cadastro como Coordenador Oficial da campanha ${effectiveCandidateName}:\n\n🔗 ${coordLink}\n\nApós o cadastro, você terá acesso imediato ao seu painel!`;
+                    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+                    window.open(waUrl, '_blank');
+                  }}
+                  className="w-full py-3.5 bg-green-600 text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-md rounded-xl"
+                >
+                  <Smartphone className="w-4 h-4 text-green-200" />
+                  Enviar Convite no WhatsApp
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

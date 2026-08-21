@@ -8,12 +8,14 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import LandingPage from './components/LandingPage';
 import PublicRegister from './components/PublicRegister';
+import PublicCoordinatorRegister from './components/PublicCoordinatorRegister';
 import SalesPage from './components/SalesPage';
 import RootPanel from './components/RootPanel';
 import PWAInstaller from './components/PWAInstaller';
 import { Settings, Loader2, DownloadCloud, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase, supabaseAdmin } from './lib/supabase';
+import { db } from './lib/db';
 import { Organization, Profile } from './types';
 import Logo from './components/Logo';
 import { sendSmartNotification } from './lib/notifications';
@@ -24,11 +26,16 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showLogin, setShowLogin] = useState(new URLSearchParams(window.location.search).has('org'));
+  const [showLogin, setShowLogin] = useState(new URLSearchParams(window.location.search).has('org') && !new URLSearchParams(window.location.search).has('coord_register') && !new URLSearchParams(window.location.search).has('cadastro'));
   const [showSales, setShowSales] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'full' | 'premium' | 'starter'>('full');
   const [brandOrg, setBrandOrg] = useState<Organization | null>(null);
   const [isPublicForm, setIsPublicForm] = useState(new URLSearchParams(window.location.search).get('public') === 'true');
+  const [isPublicCoordForm, setIsPublicCoordForm] = useState(
+    new URLSearchParams(window.location.search).get('coord_register') === 'true' ||
+    new URLSearchParams(window.location.search).get('coordenador') === 'true' ||
+    new URLSearchParams(window.location.search).get('cadastro') === 'coordenador'
+  );
   const [isRootView, setIsRootView] = useState(false);
   const [showInstaller, setShowInstaller] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -66,7 +73,7 @@ export default function App() {
 
   // Centralized theme management: resets on landing page, applies on login & app views
   useEffect(() => {
-    const isLandingPage = !session && !showLogin && !showSales && !isPublicForm;
+    const isLandingPage = !session && !showLogin && !showSales && !isPublicForm && !isPublicCoordForm;
     
     if (isLandingPage) {
       resetAppTheme();
@@ -101,7 +108,7 @@ export default function App() {
 
     window.addEventListener('themeUpdated', handleThemeUpdate);
     return () => window.removeEventListener('themeUpdated', handleThemeUpdate);
-  }, [session, showLogin, showSales, isPublicForm, brandOrg, profile]);
+  }, [session, showLogin, showSales, isPublicForm, isPublicCoordForm, brandOrg, profile]);
 
   useEffect(() => {
     const orgId = new URLSearchParams(window.location.search).get('org');
@@ -162,6 +169,25 @@ export default function App() {
             const newUrl = new URL(window.location.href);
             newUrl.searchParams.set('org', org.id);
             window.history.replaceState({}, '', newUrl);
+          }
+        });
+    } else {
+      // Buscar a organização real ativa no banco para não usar demo-org
+      supabase.from('organizations')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data: org }) => {
+          if (org) {
+            setBrandOrg(org);
+            if (org.logo_url) {
+              localStorage.setItem('@AppGestao:savedLogo', org.logo_url);
+              window.dispatchEvent(new Event('logoUpdated'));
+            }
+            try {
+              localStorage.setItem('forja_current_organization', JSON.stringify(org));
+            } catch {}
           }
         });
     }
@@ -260,7 +286,37 @@ export default function App() {
 
 
   const fetchProfile = async (userId: string, userEmail?: string) => {
-    // Demo roles apenas para ambiente de desenvolvimento e showroom
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    // 1. Se for login de coordenador cadastrado (prioridade máxima)
+    if (userId.startsWith('coord-') || (userEmail && !uuidRegex.test(userId))) {
+      const coordId = userId.replace('coord-', '');
+      try {
+        const coords = await db.getCoordinators(brandOrg?.id);
+        const found = coords.find(
+          c => c.id === coordId || (c.email && c.email.trim().toLowerCase() === userEmail?.trim().toLowerCase())
+        );
+        if (found) {
+          const isAreaCoord = !(found as any).network_id || (found as any).role === 'area_coordinator';
+          const coordRole = (found as any).role || (isAreaCoord ? 'area_coordinator' : 'coordinator');
+          const coordProfile = {
+            id: found.id,
+            email: found.email || userEmail,
+            full_name: found.name,
+            role: coordRole,
+            organization_id: found.org_id || brandOrg?.id,
+            organization: brandOrg
+          };
+          setProfile(coordProfile as any);
+          setLoading(false);
+          return coordProfile;
+        }
+      } catch (coordErr) {
+        console.warn('Erro ao carregar perfil de coordenador:', coordErr);
+      }
+    }
+
+    // 2. Demo roles apenas para contas oficiais de demonstração (se a sessão for demo-*)
     const demoRoles: Record<string, { name: string, role: string, orgName: string }> = {
       'edukadoshmda@gmail.com': { name: 'Super Admin Master', role: 'super_admin', orgName: 'PAINEL DE CONTROLE MASTER' },
       'presidente@campanha.com': { name: 'Candidato a Presidente', role: 'candidate', orgName: 'Campanha Presidencial' },
@@ -271,24 +327,29 @@ export default function App() {
       'prefeito@campanha.com': { name: 'Candidato a Prefeito', role: 'candidate', orgName: 'Campanha Executivo Municipal' },
       'vereador@campanha.com': { name: 'Candidato a Vereador', role: 'candidate', orgName: 'Campanha Legislativo Municipal' },
       'coordenacao@campanha.com': { name: 'Coordenação Geral', role: 'general_coordination', orgName: 'Coordenação de Campanha' },
-      'coordenador@campanha.com': { name: 'Coordenador de Rua', role: 'coordinator', orgName: 'Visão de Campo (Restrita)' },
-      'teste@campanha.com': { name: 'Visitante', role: 'candidate', orgName: 'Ambiente de Demonstração' },
-      'candidato@teste.com': { name: 'Candidato', role: 'candidate', orgName: 'Campanha de Teste' },
-      'coordenador@teste.com': { name: 'Coordenador', role: 'coordinator', orgName: 'Campanha de Teste' },
-      'area@teste.com': { name: 'Coordenador de Área', role: 'area_coordinator', orgName: 'Campanha de Teste' },
+      'candidato@teste.com': { name: 'Candidato Teste', role: 'candidate', orgName: 'Campanha Demonstrativa' },
+      'coordenador@teste.com': { name: 'Coordenador Teste', role: 'coordinator', orgName: 'Campanha Demonstrativa' },
+      'area@teste.com': { name: 'Coordenador de Área Teste', role: 'area_coordinator', orgName: 'Campanha Demonstrativa' },
     };
 
-    // Se for usuário demo, carregar dados de demo diretamente sem gerar erro de sintaxe UUID no PostgreSQL
-    if (userId.startsWith('demo-') || (userEmail && demoRoles[userEmail])) {
-      const emailKey = userEmail || userId.replace('demo-', '');
-      const demoData = demoRoles[emailKey] || { name: 'Administrador', role: 'super_admin', orgName: 'Painel Master' };
+    if (userId.startsWith('demo-') && userEmail && demoRoles[userEmail]) {
+      const emailKey = userEmail;
+      const demoData = demoRoles[emailKey];
       
-      let orgData: any = brandOrg || {
-        id: 'demo-org',
-        name: demoData.orgName,
-        candidate_name: demoData.name,
-        created_at: new Date().toISOString()
-      };
+      let orgData: any = brandOrg;
+      if (!orgData || orgData.id === 'demo-org') {
+        const { data: dbOrg } = await supabase.from('organizations').select('*').limit(1).maybeSingle();
+        if (dbOrg) {
+          orgData = dbOrg;
+        } else {
+          orgData = {
+            id: '6de1ca5c-a3fd-43e1-90ef-4aca4afb2238',
+            name: demoData.orgName,
+            candidate_name: demoData.name,
+            created_at: new Date().toISOString()
+          };
+        }
+      }
 
       try {
         const editedMap = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
@@ -318,7 +379,6 @@ export default function App() {
     // Busca do banco de dados real via cliente administrativo ou supabase
     try {
       const client = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       
       let query = client.from('profiles').select('*, organization:organizations(*)');
 
@@ -361,12 +421,18 @@ export default function App() {
         setLoading(false);
         return updatedProfile;
       } else if (userEmail) {
-        // Fallback: se não encontrou o perfil no Supabase, criar ou montar perfil provisório
+        // Fallback: se não encontrou o perfil no Supabase, verificar se é coordenador ou montar perfil provisório
+        const coords = await db.getCoordinators(brandOrg?.id);
+        const found = coords.find(
+          c => (c.email && c.email.trim().toLowerCase() === userEmail?.trim().toLowerCase()) || c.id === userId
+        );
+        const isArea = found ? (!(found as any).network_id || (found as any).role === 'area_coordinator') : false;
+
         const fallbackProfile = {
-          id: userId,
+          id: found ? found.id : userId,
           email: userEmail,
-          full_name: userEmail.split('@')[0],
-          role: 'coordinator',
+          full_name: found ? found.name : userEmail.split('@')[0],
+          role: found ? ((found as any).role || (isArea ? 'area_coordinator' : 'coordinator')) : 'coordinator',
           organization_id: brandOrg?.id || undefined,
           organization: brandOrg
         };
@@ -403,7 +469,18 @@ export default function App() {
   const handleInstallOpen = () => setShowInstaller(true);
   const handleInstallDismiss = () => setShowInstaller(false);
 
-  // LOGICA DE RENDERIZAÇÃO
+  // ── ROTAS PÚBLICAS (Têm prioridade sobre sessão ativa) ──
+  if (isPublicCoordForm) {
+    return <PublicCoordinatorRegister onBack={() => setIsPublicCoordForm(false)} onLoginSuccess={handleLogin} />;
+  }
+  if (isPublicForm) {
+    return <PublicRegister onBack={() => setIsPublicForm(false)} />;
+  }
+  if (showSales) {
+    return <SalesPage onBack={() => setShowSales(false)} orgId={profile?.organization?.id} plan={selectedPlan} onChangePlan={setSelectedPlan} />;
+  }
+
+  // ── SESSÃO AUTENTICADA (Painel e Dashboard) ──
   if (session && profile) {
     const isMasterAdmin = session.user.email === 'edukadoshmda@gmail.com';
 
@@ -471,9 +548,6 @@ export default function App() {
       </div>
     );
   }
-
-  if (showSales) return <SalesPage onBack={() => setShowSales(false)} orgId={profile?.organization?.id} plan={selectedPlan} onChangePlan={setSelectedPlan} />;
-  if (isPublicForm) return <PublicRegister onBack={() => setIsPublicForm(false)} />;
 
   if (showLogin) return (
     <>

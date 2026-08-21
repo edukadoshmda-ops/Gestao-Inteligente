@@ -54,9 +54,13 @@ function SidebarContent({
       <div className="flex-1 overflow-y-auto flex flex-col justify-between py-6">
         <nav className="space-y-0.5 px-3">
           {menuItems.filter(item => {
-            if (role === 'coordinator' || role === 'area_coordinator') {
-              // Coordenador de área só vê o essencial de campo
-              return ['list', 'chat', 'materials'].includes(item.id);
+            if (role === 'coordinator') {
+              // Coordenador de rua vê o essencial de campo e configurações (alterar senha)
+              return ['list', 'chat', 'materials', 'settings'].includes(item.id);
+            }
+            if (role === 'area_coordinator') {
+              // Coordenador de área vê gestão de equipe, análises, materiais e configurações (alterar senha)
+              return ['list', 'coordinators', 'ranking', 'report', 'gender', 'neighborhood', 'chat', 'materials', 'settings'].includes(item.id);
             }
             if (role === 'general_coordination') {
               // Coordenação Geral vê quase tudo, exceto admin master

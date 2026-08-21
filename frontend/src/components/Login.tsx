@@ -123,40 +123,53 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
     try {
       const cleanEmail = email.trim().toLowerCase();
 
-      // BYPASS DE TESTES E HIERARQUIA AUTOMÁTICA
+      // 1. Verificação de Coordenador Cadastrado
+      try {
+        const registeredCoords = await db.getCoordinators();
+        const savedPass = localStorage.getItem(`@AppGestao:userPass_${cleanEmail}`) || localStorage.getItem(`@AppGestao:coordPass_${cleanEmail}`);
+        const matchedCoord = registeredCoords.find(
+          c => c.email?.trim().toLowerCase() === cleanEmail
+        );
+        if (matchedCoord) {
+          const expectedPassword = (matchedCoord as any).password || savedPass || '123456';
+          if (password === expectedPassword) {
+            const fakeSession = {
+              user: { id: `coord-${matchedCoord.id}`, email: cleanEmail },
+              access_token: 'coord-token'
+            };
+            onLogin(fakeSession);
+            return;
+          } else {
+            throw new Error('Invalid login credentials');
+          }
+        }
+      } catch (coordErr: any) {
+        if (coordErr.message === 'Invalid login credentials') {
+          throw coordErr;
+        }
+        console.warn('Verificação de coordenador:', coordErr);
+      }
+
+      // 2. Contas de Demonstração / Master Cadastradas
       const demoRoles = [
         'edukadoshmda@gmail.com', 'presidente@campanha.com', 'governador@campanha.com',
         'senador@campanha.com', 'df@campanha.com', 'de@campanha.com', 'prefeito@campanha.com',
-        'vereador@campanha.com',
+        'vereador@campanha.com', 'coordenacao@campanha.com',
         'candidato@teste.com', 'coordenador@teste.com', 'area@teste.com'
       ];
 
-      const savedDemoPass = localStorage.getItem(`@AppGestao:demoPass_${cleanEmail}`) || '123456';
-      if (demoRoles.includes(cleanEmail) && (password === '123456' || password === savedDemoPass)) {
-        const fakeSession = {
-          user: { id: `demo-${cleanEmail}`, email: cleanEmail },
-          access_token: 'demo-token'
-        };
-        onLogin(fakeSession);
-        return;
-      }
-
-      // Login de Coordenador Cadastrado
-      try {
-        const registeredCoords = await db.getCoordinators();
-        const matchedCoord = registeredCoords.find(
-          c => c.email?.trim().toLowerCase() === cleanEmail && (c as any).password === password
-        );
-        if (matchedCoord) {
+      if (demoRoles.includes(cleanEmail)) {
+        const savedDemoPass = localStorage.getItem(`@AppGestao:userPass_${cleanEmail}`) || localStorage.getItem(`@AppGestao:demoPass_${cleanEmail}`) || '123456';
+        if (password === savedDemoPass) {
           const fakeSession = {
-            user: { id: `coord-${matchedCoord.id}`, email: cleanEmail },
-            access_token: 'coord-token'
+            user: { id: `demo-${cleanEmail}`, email: cleanEmail },
+            access_token: 'demo-token'
           };
           onLogin(fakeSession);
           return;
+        } else {
+          throw new Error('Invalid login credentials');
         }
-      } catch (coordErr) {
-        console.warn('Verificação de coordenador:', coordErr);
       }
 
       if (isSignUp) {
@@ -176,7 +189,7 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
         if (signUpError) throw signUpError;
         alert('Conta criada com sucesso! Verifique seu e-mail para confirmar.');
       } else {
-        // 1. Tentar login oficial via Supabase Auth
+        // 3. Tentar login oficial via Supabase Auth
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
@@ -187,70 +200,51 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
           return;
         }
 
-        // 2. Se falhou na autenticação regular, verificar se o usuário foi cadastrado pelo painel
+        // 4. Se falhou na autenticação regular, verificar se há senha local salva explicitamente
         if (signInError) {
           const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
           const savedPass = localStorage.getItem(`@AppGestao:userPass_${cleanEmail}`);
-          const isKnownPassword = (savedPass && password === savedPass) || (password === '123456') || (password === 'temp123456');
 
-          // Tentar sincronizar a senha no Supabase Auth via Admin API
-          if (supabaseAdmin && !supabaseAdmin.isMock && supabaseAdmin.auth?.admin) {
-            try {
-              const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
-              const existingUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
+          if (savedPass && password === savedPass) {
+            // Tentar sincronizar a senha no Supabase Auth via Admin API
+            if (supabaseAdmin && !supabaseAdmin.isMock && supabaseAdmin.auth?.admin) {
+              try {
+                const { data: usersList } = await supabaseAdmin.auth.admin.listUsers();
+                const existingUser = usersList?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
 
-              if (existingUser) {
-                // Atualiza a senha no Auth e confirma o e-mail automaticamente
-                await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
-                  password: password,
-                  email_confirm: true
-                });
-
-                // Tenta logar novamente com a senha atualizada
-                const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
-                  email: cleanEmail,
-                  password,
-                });
-
-                if (!retryError && retryData?.session) {
-                  onLogin(retryData.session);
-                  return;
+                if (existingUser) {
+                  await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
+                    password: password,
+                    email_confirm: true
+                  });
                 }
+              } catch (authAdminErr) {
+                console.warn('Tentativa via Admin Auth:', authAdminErr);
+              }
+            }
 
-                // Sessão direta autenticada via Admin
+            // Obter perfil
+            try {
+              const { data: profileRow } = await clientToUse
+                .from('profiles')
+                .select('*')
+                .eq('email', cleanEmail)
+                .maybeSingle();
+
+              if (profileRow) {
                 const fakeSession = {
-                  user: { id: existingUser.id, email: cleanEmail },
-                  access_token: 'auth-admin-session'
+                  user: { id: profileRow.id, email: cleanEmail },
+                  access_token: 'profile-session'
                 };
                 onLogin(fakeSession);
                 return;
               }
-            } catch (authAdminErr) {
-              console.warn('Tentativa via Admin Auth:', authAdminErr);
+            } catch (profileErr) {
+              console.warn('Tentativa via profile lookup:', profileErr);
             }
           }
 
-          // Verificar se o usuário existe na tabela profiles
-          try {
-            const { data: profileRow } = await clientToUse
-              .from('profiles')
-              .select('*')
-              .eq('email', cleanEmail)
-              .maybeSingle();
-
-            if (profileRow && (isKnownPassword || password.length >= 6)) {
-              const fakeSession = {
-                user: { id: profileRow.id, email: cleanEmail },
-                access_token: 'profile-session'
-              };
-              onLogin(fakeSession);
-              return;
-            }
-          } catch (profileErr) {
-            console.warn('Tentativa via profile lookup:', profileErr);
-          }
-
-          throw signInError;
+          throw new Error('Invalid login credentials');
         }
       }
     } catch (err: any) {
