@@ -301,23 +301,26 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
     }, 15000);
   };
 
-  // Leitura inteligente de foto do Título de Eleitor (Dual Engine: Gemini Vision + Tesseract)
+  // Leitura inteligente de foto do Título de Eleitor (Engine Principal: Tesseract OCR Local)
   const handleScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Reset input para permitir nova leitura do mesmo arquivo
+    e.target.value = '';
 
     setIsScanning(true);
     setScanFeedback('Otimizando imagem do documento...');
 
     try {
-      // 1. Redimensionar e comprimir imagem no Canvas para envio rápido e ultra nítido
-      const base64Data = await new Promise<string>((resolve, reject) => {
+      // ETAPA 1: Comprimir e pré-processar imagem no Canvas com alto contraste
+      const { base64Data, dataUrl } = await new Promise<{ base64Data: string; dataUrl: string }>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (readerEvent) => {
           const img = new Image();
           img.onload = () => {
             const canvas = document.createElement('canvas');
-            const maxDim = 1600;
+            const maxDim = 1800;
             let { width, height } = img;
             if (width > maxDim || height > maxDim) {
               if (width > height) {
@@ -332,11 +335,14 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             if (ctx) {
+              // Desenha com filtro de nitidez para documentos
+              ctx.filter = 'contrast(1.3) brightness(1.05)';
               ctx.drawImage(img, 0, 0, width, height);
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-              resolve(dataUrl.split(',')[1]);
+              const url = canvas.toDataURL('image/jpeg', 0.92);
+              resolve({ base64Data: url.split(',')[1], dataUrl: url });
             } else {
-              resolve((readerEvent.target?.result as string).split(',')[1]);
+              const raw = readerEvent.target?.result as string;
+              resolve({ base64Data: raw.split(',')[1], dataUrl: raw });
             }
           };
           img.onerror = reject;
@@ -347,95 +353,158 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
       });
 
       let extractedData: any = null;
-      const apiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
 
-      // 2. Tenta Gemini Vision com múltiplos modelos oficiais (gemini-1.5-flash, gemini-2.0-flash)
-      if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
+      // ETAPA 2: Gemini Vision AI (SOMENTE se usuário configurou sua própria chave válida)
+      const userApiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY;
+      const isValidKey = userApiKey && userApiKey.length > 20 && !userApiKey.includes('MY_GEMINI') && !userApiKey.includes('AIzaSyCesNHy');
+
+      if (isValidKey) {
         setScanFeedback('IA analisando documento...');
-        const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
-
+        const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash'];
         const prompt = `Analise a foto deste documento brasileiro (Título de Eleitor, e-Título, RG ou CNH).
-Extraia os dados com precisão e retorne APENAS um JSON puro sem crases ou markdown:
-{
-  "name": "Nome Completo do Eleitor",
-  "voterId": "Número do Título de Eleitor (apenas os 12 dígitos numéricos)",
-  "voterZone": "Zona Eleitoral (apenas números, ex 001)",
-  "voterSection": "Seção Eleitoral (apenas números, ex 0123)",
-  "birthDate": "YYYY-MM-DD",
-  "neighborhood": "Bairro ou Cidade",
-  "gender": "Masculino" ou "Feminino"
-}`;
+Extraia os dados e retorne APENAS um JSON puro sem crases ou markdown:
+{"name":"Nome Completo","voterId":"12 dígitos do título","voterZone":"número da zona","voterSection":"número da seção","birthDate":"YYYY-MM-DD","neighborhood":"Município","gender":"Masculino ou Feminino"}`;
 
         for (const model of modelsToTry) {
           if (extractedData?.name) break;
           try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${userApiKey}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: prompt },
-                    { inline_data: { mime_type: 'image/jpeg', data: base64Data } }
-                  ]
-                }]
-              })
+              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: base64Data } }] }] })
             });
-
             if (response.ok) {
               const json = await response.json();
-              const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-              const matchJson = textResponse.match(/\{[\s\S]*\}/);
-              if (matchJson) {
-                extractedData = JSON.parse(matchJson[0]);
-              }
+              const txt = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              const m = txt.match(/\{[\s\S]*\}/);
+              if (m) extractedData = JSON.parse(m[0]);
             }
-          } catch (modelErr) {
-            console.warn(`Tentativa com ${model} falhou:`, modelErr);
+          } catch (err) {
+            console.warn(`Gemini ${model} falhou:`, err);
           }
         }
       }
 
-      // 3. Fallback para Tesseract Local se a IA não retornou
+      // ETAPA 3: Tesseract OCR Local (Engine principal — funciona offline, sem API)
       if (!extractedData || !extractedData.name) {
-        setScanFeedback('Processando OCR de alta resolução...');
+        setScanFeedback('Lendo documento com OCR...');
         try {
-          const worker = await createWorker('por');
-          const { data: { text } } = await worker.recognize(file);
+          let worker;
+          try {
+            worker = await createWorker('por');
+          } catch {
+            worker = await createWorker('eng');
+          }
+
+          const { data: { text } } = await worker.recognize(dataUrl);
           await worker.terminate();
 
-          const nameMatch = text.match(/NOME(?:\s*DO\s*ELEITOR)?\s*[:\s]*([^\n\r]+)/i) ||
-                            text.match(/ELEITOR\s*[:\s]*([^\n\r]+)/i);
-          const voterIdMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4})/i) ||
-                               text.match(/INSCRI[ÇC][ÃA]O\s*[:\s]*(\d[\d\s]+)/i) ||
-                               text.match(/T[ÍI]TULO\s*[:\s]*(\d[\d\s]+)/i);
-          const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{1,4})/i);
-          const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{1,3})/i);
-          const birthMatch = text.match(/DATA\s*DE\s*NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
-                             text.match(/NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
-                             text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
-          const cityMatch = text.match(/MUNIC[ÍI]PIO\s*[:\s]*([^\n\r\/\-]+)/i);
+          console.log('[OCR Raw Text]:', text);
 
-          let formattedBirth = '';
-          if (birthMatch) {
-            formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+          const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+          let name = '';
+          let voterId = '';
+          let voterZone = '';
+          let voterSection = '';
+          let birthDate = '';
+          let neighborhood = '';
+
+          const IGNORE = ['REPUBLICA','REPÚBLICA','FEDERATIVA','BRASIL','JUSTIÇA','JUSTICA',
+            'ELEITORAL','TÍTULO','TITULO','ELEITOR','TRIBUNAL','SUPERIOR','PODER',
+            'JUDICIÁRIO','JUDICIARIO','DOCUMENTO','IDENTIFICAÇÃO','IDENTIFICACAO',
+            'VALE','COMO','PROVA','QUITAÇÃO','QUITACAO','ASSINATURA','PORTADOR','VIA','DIGITAL'];
+
+          // Busca Nome (linha abaixo de "NOME" ou "NOME DO ELEITOR")
+          for (let i = 0; i < lines.length; i++) {
+            const up = lines[i].toUpperCase().replace(/[^A-Z\s]/g, '').trim();
+            if (up === 'NOME' || up === 'NOME DO ELEITOR' || lines[i].toUpperCase().startsWith('NOME:')) {
+              const candidate = lines[i].includes(':') ? lines[i].split(':').slice(1).join(':').trim() : (lines[i + 1] || '');
+              if (candidate && candidate.length > 3 && /[A-ZÀ-Ú]/i.test(candidate)) {
+                name = candidate.trim();
+              }
+              break;
+            }
           }
 
-          extractedData = {
-            name: nameMatch ? nameMatch[1].trim() : '',
-            voterId: voterIdMatch ? voterIdMatch[1].replace(/\D/g, '').slice(0, 12) : '',
-            voterSection: sectionMatch ? sectionMatch[1].padStart(4, '0') : '',
-            voterZone: zoneMatch ? zoneMatch[1].padStart(3, '0') : '',
-            birthDate: formattedBirth,
-            neighborhood: cityMatch ? cityMatch[1].trim() : ''
-          };
+          // Fallback nome: linha maiúscula com 2-6 palavras que não seja cabeçalho
+          if (!name) {
+            for (const line of lines) {
+              const words = line.trim().split(/\s+/);
+              const isHeader = words.some(w => IGNORE.includes(w.toUpperCase().replace(/[^A-Z]/g, '')));
+              const isAllAlpha = /^[A-ZÀ-Ú\s\.]+$/i.test(line.trim());
+              if (!isHeader && isAllAlpha && words.length >= 2 && words.length <= 6 && line.trim().length > 4) {
+                name = line.trim();
+                break;
+              }
+            }
+          }
+
+          // Busca número do Título (12 dígitos, podendo ter espaços entre grupos de 4)
+          const voterIdMatch = text.match(/\b(\d{4})\s*(\d{4})\s*(\d{4})\b/);
+          if (voterIdMatch) {
+            voterId = (voterIdMatch[1] + voterIdMatch[2] + voterIdMatch[3]).slice(0, 12);
+          } else {
+            // Busca 10-13 dígitos consecutivos como fallback
+            const longNum = text.match(/\b(\d{10,13})\b/);
+            if (longNum) voterId = longNum[1].slice(0, 12);
+          }
+
+          // Busca Data de Nascimento DD/MM/YYYY
+          const bMatch = text.match(/\b(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})\b/);
+          if (bMatch) {
+            const [, d, m, y] = bMatch;
+            const di = parseInt(d), mi = parseInt(m), yi = parseInt(y);
+            if (di >= 1 && di <= 31 && mi >= 1 && mi <= 12 && yi >= 1920 && yi <= 2026) {
+              birthDate = `${y}-${m}-${d}`;
+            }
+          }
+
+          // Busca Zona e Seção juntas (formato e-Título: "ZONA SEÇÃO\n015 0456")
+          for (let i = 0; i < lines.length; i++) {
+            const up = lines[i].toUpperCase();
+            if (up.includes('ZONA') && (up.includes('SEÇÃO') || up.includes('SECAO') || up.includes('SEÇAO'))) {
+              const next = lines[i + 1] || '';
+              const nums = next.match(/\b(\d{1,4})\b/g);
+              if (nums && nums.length >= 2) {
+                voterZone = nums[0].padStart(3, '0');
+                voterSection = nums[1].padStart(4, '0');
+                break;
+              }
+            }
+          }
+
+          if (!voterZone) {
+            const zm = text.match(/ZONA\s*[:\-\s]*(\d{1,4})/i);
+            if (zm) voterZone = zm[1].padStart(3, '0');
+          }
+          if (!voterSection) {
+            const sm = text.match(/SE[ÇC][ÃA]O\s*[:\-\s]*(\d{1,4})/i);
+            if (sm) voterSection = sm[1].padStart(4, '0');
+          }
+
+          // Busca Município
+          for (let i = 0; i < lines.length; i++) {
+            const up = lines[i].toUpperCase();
+            if (up.includes('MUNIC') || up.includes('CIDADE')) {
+              const val = lines[i].includes(':') ? lines[i].split(':').slice(1).join(':') : (lines[i + 1] || '');
+              neighborhood = val.replace(/\/.*$/, '').trim();
+              break;
+            }
+          }
+
+          extractedData = { name, voterId, voterZone, voterSection, birthDate, neighborhood };
         } catch (tessErr) {
-          console.warn("Tesseract fallback:", tessErr);
+          console.error('Erro Tesseract OCR:', tessErr);
         }
       }
 
-      // 4. Preenche os dados automaticamente no formulário
-      if (extractedData && (extractedData.name || extractedData.voterId)) {
+      // ETAPA 4: Preencher formulário com o que foi reconhecido
+      const hasAnyData = extractedData && (
+        extractedData.name || extractedData.voterId || extractedData.voterZone ||
+        extractedData.voterSection || extractedData.birthDate
+      );
+
+      if (hasAnyData) {
         setFormData(prev => ({
           ...prev,
           name: extractedData.name ? extractedData.name.trim() : prev.name,
@@ -447,10 +516,23 @@ Extraia os dados com precisão e retorne APENAS um JSON puro sem crases ou markd
           gender: extractedData.gender || prev.gender,
         }));
 
-        setScanFeedback('✨ Dados do Título preenchidos com sucesso!');
-        setTimeout(() => setScanFeedback(null), 5000);
+        const preenchidos = [
+          extractedData.name && 'Nome',
+          extractedData.voterId && 'Título',
+          extractedData.voterZone && 'Zona',
+          extractedData.voterSection && 'Seção',
+          extractedData.birthDate && 'Nascimento',
+        ].filter(Boolean);
+
+        if (preenchidos.length === 5) {
+          setScanFeedback('✨ Documento lido com sucesso! Todos os campos preenchidos.');
+        } else {
+          setScanFeedback(`📋 Leitura parcial: ${preenchidos.join(', ')} identificados. Verifique os campos em branco.`);
+        }
+        setTimeout(() => setScanFeedback(null), 7000);
       } else {
-        alert('Não foi possível reconhecer os dados do documento automaticamente. Por favor, preencha manualmente ou envie uma foto mais nítida.');
+        setScanFeedback('⚠️ Não foi possível ler o documento. Verifique a iluminação e tente uma foto mais nítida.');
+        setTimeout(() => setScanFeedback(null), 6000);
       }
 
     } catch (error) {
@@ -643,24 +725,21 @@ Extraia os dados com precisão e retorne APENAS um JSON puro sem crases ou markd
             <input
               type="file"
               id="voter-card-scan"
-              accept="image/*"
-              capture="environment"
+              accept="image/*,.jpg,.jpeg,.png,.webp,.bmp"
               onChange={handleScan}
               className="hidden"
             />
-            <button
-              type="button"
-              disabled={isScanning}
-              onClick={() => document.getElementById('voter-card-scan')?.click()}
-              className={`flex items-center gap-3 px-6 py-4 bg-white border-2 border-gray-300 text-gray-600 font-black uppercase text-xs tracking-widest shadow-sm hover:bg-gray-100 transition-all w-full justify-center rounded-full ${isScanning ? 'opacity-50 cursor-not-allowed' : ''}`}
+            <label
+              htmlFor="voter-card-scan"
+              className={`flex items-center gap-3 px-6 py-4 bg-white border-2 border-gray-300 text-gray-700 font-black uppercase text-xs tracking-widest shadow-sm hover:bg-gray-100 transition-all w-full justify-center rounded-full cursor-pointer ${isScanning ? 'opacity-50 pointer-events-none' : ''}`}
             >
               {isScanning ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Loader2 className="w-5 h-5 animate-spin text-gov-blue" />
               ) : (
                 <Camera className="w-5 h-5 text-gov-blue" />
               )}
               {isScanning ? 'Lendo Título de Eleitor...' : 'Escanear Foto do Título'}
-            </button>
+            </label>
             <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest text-center px-4">
               Carregue ou fotografe o Título de Eleitor para preencher Nome, Título, Seção e Data.
             </p>

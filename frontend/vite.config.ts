@@ -15,8 +15,8 @@ export default defineConfig(({mode}) => {
         manifestFilename: 'manifest.json',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'icon-192.png', 'icon-512.png'],
         manifest: {
-          name: 'Gestão de Votos Mirla DF 2026',
-          short_name: 'Mirla DF',
+          name: 'Sistema Gestão Inteligente',
+          short_name: 'Gestão Inteligente',
           description: 'Sistema Integrado de Gestão de Base Eleitoral e Mobilização',
           theme_color: '#1e3a8a',
           background_color: '#f8fafc',

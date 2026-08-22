@@ -10,7 +10,8 @@ interface MemberListProps {
   welcomeTemplate?: string;
 }
 
-const formatPhone = (phone: string) => {
+const formatPhone = (phone: string | null | undefined) => {
+  if (!phone) return '';
   const cleaned = phone.replace(/\D/g, '');
   if (cleaned.length === 11) {
     return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
@@ -21,7 +22,8 @@ const formatPhone = (phone: string) => {
   return phone;
 };
 
-const getWhatsAppLink = (phone: string, name: string, template?: string) => {
+const getWhatsAppLink = (phone: string | null | undefined, name: string, template?: string) => {
+  if (!phone) return '#';
   const cleaned = phone.replace(/\D/g, '');
   let formatted = cleaned;
   if (cleaned.length === 10 || cleaned.length === 11) {
@@ -31,7 +33,7 @@ const getWhatsAppLink = (phone: string, name: string, template?: string) => {
   }
 
   const baseMsg = template || "Olá {nome_eleitor}!";
-  const personalizedMsg = baseMsg.replace(/{nome_eleitor}/g, name);
+  const personalizedMsg = baseMsg.replace(/{nome_eleitor}/g, name || '');
   
   return `https://wa.me/${formatted}?text=${encodeURIComponent(personalizedMsg)}`;
 };

@@ -248,10 +248,10 @@ export default function App() {
 
   // Injecao dinamica do Manifest do PWA para White Label
   useEffect(() => {
-    if (brandOrg?.logo_url) {
+    if (brandOrg?.logo_url && brandOrg?.candidate_name) {
       const manifest = {
-        name: brandOrg.candidate_name || "Sistema Eleitoral",
-        short_name: brandOrg.candidate_name ? brandOrg.candidate_name.split(' ')[0] : "Campanha",
+        name: `Gestão Inteligente - ${brandOrg.candidate_name}`,
+        short_name: brandOrg.candidate_name ? brandOrg.candidate_name.split(' ')[0] : "Gestão IA",
         start_url: `/?org=${brandOrg.id}`,
         display: "standalone",
         background_color: "#003366",

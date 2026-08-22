@@ -31,7 +31,7 @@ export const BRAZIL_STATES: StateElectoralInfo[] = [
   {
     uf: 'AM',
     name: 'Amazonas',
-    totalZones: 61,
+    totalZones: 60,
     capital: 'Manaus',
     mainCities: ['Manaus', 'Parintins', 'Itacoatiara', 'Manacapuru', 'Coari', 'Tabatinga', 'Maués', 'Tefé', 'Manicoré', 'Humaitá']
   },
@@ -59,14 +59,14 @@ export const BRAZIL_STATES: StateElectoralInfo[] = [
   {
     uf: 'ES',
     name: 'Espírito Santo',
-    totalZones: 57,
+    totalZones: 50,
     capital: 'Vitória',
     mainCities: ['Vitória', 'Vila Velha', 'Serra', 'Cariacica', 'Cachoeiro de Itapemirim', 'Linhares', 'São Mateus', 'Colatina', 'Guarapari', 'Aracruz', 'Viana', 'Nova Venécia']
   },
   {
     uf: 'GO',
     name: 'Goiás',
-    totalZones: 128,
+    totalZones: 92,
     capital: 'Goiânia',
     mainCities: ['Goiânia', 'Aparecida de Goiânia', 'Anápolis', 'Rio Verde', 'Águas Lindas de Goiás', 'Luziânia', 'Valparaíso de Goiás', 'Trindade', 'Formosa', 'Senador Canedo', 'Itumbiara', 'Catalão', 'Jataí', 'Planaltina', 'Caldas Novas']
   },
@@ -87,7 +87,7 @@ export const BRAZIL_STATES: StateElectoralInfo[] = [
   {
     uf: 'MS',
     name: 'Mato Grosso do Sul',
-    totalZones: 54,
+    totalZones: 49,
     capital: 'Campo Grande',
     mainCities: ['Campo Grande', 'Dourados', 'Três Lagoas', 'Corumbá', 'Ponta Porã', 'Naviraí', 'Nova Andradina', 'Aquidauana', 'Sidrolândia', 'Paranaíba', 'Maracaju', 'Amambai']
   },
@@ -171,7 +171,7 @@ export const BRAZIL_STATES: StateElectoralInfo[] = [
   {
     uf: 'SC',
     name: 'Santa Catarina',
-    totalZones: 105,
+    totalZones: 100,
     capital: 'Florianópolis',
     mainCities: ['Florianópolis', 'Joinville', 'Blumenau', 'São José', 'Chapecó', 'Itajaí', 'Criciúma', 'Jaraguá do Sul', 'Palhoça', 'Lages', 'Balneário Camboriú', 'Brusque', 'Tubarão', 'São Bento do Sul', 'Camboriú', 'Navegantes', 'Caçador', 'Concórdia']
   },

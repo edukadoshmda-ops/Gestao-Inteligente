@@ -260,27 +260,93 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
       if (!extractedData || !extractedData.name) {
         setScanFeedback('Processando OCR local...');
         try {
-          const worker = await createWorker('por');
-          const { data: { text } } = await worker.recognize(file);
+          let worker;
+          try {
+            worker = await createWorker('por');
+          } catch (e) {
+            console.warn("Fallback de idioma OCR para eng:", e);
+            worker = await createWorker('eng');
+          }
+          const { data: { text } } = await worker.recognize(`data:image/jpeg;base64,${base64Data}`);
           await worker.terminate();
 
-          const nameMatch = text.match(/NOME\s*[:\s]*([^\n]+)/i);
-          const voterIdMatch = text.match(/T[ÍI]TULO\s*DE\s*ELEITOR\s*[:\s]*(\d{4}\s*\d{4}\s*\d{4})/i) || text.match(/(\d{4}\s*\d{4}\s*\d{4})/);
-          const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{4})/i);
-          const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{3})/i);
-          const birthMatch = text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
+          const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+          let name = '';
+          let voterId = '';
+          let voterZone = '';
+          let voterSection = '';
+          let birthDate = '';
 
-          let formattedBirth = '';
+          const ignoreHeaders = [
+            'REPUBLICA', 'REPÚBLICA', 'FEDERATIVA', 'BRASIL', 'JUSTIÇA', 'JUSTICA', 
+            'ELEITORAL', 'TÍTULO', 'TITULO', 'ELEITOR', 'TRIBUNAL', 'SUPERIOR',
+            'DOCUMENTO', 'IDENTIFICAÇÃO', 'IDENTIFICACAO', 'VALE', 'COMO', 'PROVA',
+            'QUITAÇÃO', 'QUITACAO', 'ASSINATURA', 'PORTADOR', 'VIA', 'DIGITAL', 'PODER', 'JUDICIÁRIO', 'JUDICIARIO'
+          ];
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].toUpperCase();
+            if (line === 'NOME' || line === 'NOME DO ELEITOR' || line.startsWith('NOME:')) {
+              if (line.includes(':')) {
+                name = lines[i].split(':')[1].trim();
+              } else if (i + 1 < lines.length) {
+                name = lines[i + 1].trim();
+              }
+              break;
+            }
+          }
+
+          if (!name) {
+            for (const line of lines) {
+              const words = line.split(/\s+/);
+              const isHeader = words.some(w => ignoreHeaders.includes(w.toUpperCase()));
+              if (!isHeader && words.length >= 2 && words.length <= 6 && /^[A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ\s]+$/i.test(line)) {
+                name = line.trim();
+                break;
+              }
+            }
+          }
+
+          const allNumbers = text.match(/\b\d{4}\s*\d{4}\s*\d{4}\b/) || text.match(/\b\d{12}\b/);
+          if (allNumbers) {
+            voterId = allNumbers[0].replace(/\D/g, '');
+          }
+
+          const birthMatch = text.match(/\b(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})\b/);
           if (birthMatch) {
-            formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+            birthDate = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+          }
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].toUpperCase();
+            if (line.includes('ZONA') && line.includes('SEÇÃO')) {
+              if (i + 1 < lines.length) {
+                const parts = lines[i + 1].match(/\b(\d{1,4})\b/g);
+                if (parts && parts.length >= 2) {
+                  voterZone = parts[0].padStart(3, '0');
+                  voterSection = parts[1].padStart(4, '0');
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!voterZone) {
+            const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{1,4})/i);
+            if (zoneMatch) voterZone = zoneMatch[1].padStart(3, '0');
+          }
+
+          if (!voterSection) {
+            const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{1,4})/i);
+            if (sectionMatch) voterSection = sectionMatch[1].padStart(4, '0');
           }
 
           extractedData = {
-            name: nameMatch ? nameMatch[1].trim() : '',
-            voterId: voterIdMatch ? voterIdMatch[1].replace(/\s/g, '').slice(0, 12) : '',
-            voterSection: sectionMatch ? sectionMatch[1] : '',
-            voterZone: zoneMatch ? zoneMatch[1] : '',
-            birthDate: formattedBirth
+            name,
+            voterId,
+            voterSection,
+            voterZone,
+            birthDate
           };
         } catch (tessErr) {
           console.warn("Tesseract OCR fallback:", tessErr);
@@ -519,19 +585,17 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
               className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider"
               style={{ color: primaryColor }}
             >
-              Atalho: Fotografe seu título para preencher automaticamente
+              Atalho: Fotografe ou carregue o seu título para preencher automaticamente
             </p>
-            <input type="file" id="public-scan" accept="image/*" capture="environment" onChange={handleScan} className="hidden" />
-            <button
-              type="button"
-              disabled={isScanning}
-              onClick={() => document.getElementById('public-scan')?.click()}
+            <input type="file" id="public-scan" accept="image/*,.jpg,.jpeg,.png,.webp,.bmp" onChange={handleScan} className="hidden" />
+            <label
+              htmlFor="public-scan"
               className="flex items-center gap-2.5 px-5 sm:px-6 py-3 bg-white border-2 font-black uppercase text-[10px] sm:text-xs tracking-wider transition-all shadow-md rounded-full hover:bg-gray-50 active:scale-95 cursor-pointer"
               style={{ borderColor: primaryColor, color: primaryColor }}
             >
               {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" style={{ color: secondaryColor }} />}
               {isScanning ? 'Lendo dados do Título...' : 'Escanear Foto do Título'}
-            </button>
+            </label>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">

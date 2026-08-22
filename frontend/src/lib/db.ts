@@ -80,41 +80,36 @@ export const db = {
     const client = getClient();
     if (!client) return;
 
+    // Colunas seguras que existem na tabela members do Supabase
+    const SUPABASE_COLS = new Set([
+      'id', 'name', 'email', 'phone', 'age', 'voterId', 'voterSection',
+      'voterZone', 'gender', 'createdAt', 'org_id', 'network_id'
+    ]);
+
+    // Mapeia Member para apenas os campos que existem no Supabase
+    const toSupabaseRow = (m: any) => {
+      const row: any = {};
+      for (const key of SUPABASE_COLS) {
+        if (m[key] !== undefined && m[key] !== null && m[key] !== '') {
+          row[key] = m[key];
+        }
+      }
+      if (orgId && !row.org_id) row.org_id = orgId;
+      return row;
+    };
+
     // 2. Sincroniza no Supabase em lotes
     try {
       const BATCH_SIZE = 100;
       for (let i = 0; i < members.length; i += BATCH_SIZE) {
-        const batch = members.slice(i, i + BATCH_SIZE).map(m => {
-          const clean: any = { ...m };
-          if (m.birthDate === "") delete clean.birthDate;
-          if (m.email === "") delete clean.email;
-          if (orgId && !clean.org_id) clean.org_id = orgId;
-          return clean;
-        });
+        const batch = members.slice(i, i + BATCH_SIZE).map(toSupabaseRow);
 
         const { error } = await client
           .from('members')
           .upsert(batch, { onConflict: 'id' });
 
         if (error) {
-          if (error.message?.includes('column') || error.code === '42703') {
-            console.warn("⚠️ Aviso: Algumas colunas não existem no Supabase. Tentando sincronização de fallback.");
-            
-            const fallbackBatch = batch.map(m => {
-              const { coordinatorId, birthDate, observations, latitude, longitude, ...rest } = m;
-              return rest;
-            });
-
-            const { error: fallbackError } = await client
-              .from('members')
-              .upsert(fallbackBatch, { onConflict: 'id' });
-              
-            if (fallbackError) {
-               console.error("❌ Erro no fallback de sincronização:", fallbackError);
-            }
-            continue; 
-          }
-          console.warn("Aviso ao salvar membros no Supabase:", error);
+          console.warn("Aviso ao salvar membros no Supabase:", error.message || error);
         }
       }
       console.log(`✅ Base de ${members.length} membros sincronizada com sucesso!`);
