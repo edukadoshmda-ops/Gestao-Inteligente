@@ -83,13 +83,13 @@ export function checkPermissions(profile: Profile | null): PermissionCheck {
       };
 
     case 'area_coordinator':
-      // Coordenador de Área vê e gerencia apenas a sua rede subordinada
+      // Coordenador de Área vê e gerencia a sua rede subordinada
       return {
         canCreateCampaigns: false,
         canDeleteCampaigns: false,
         canCreateCoordinators: true, // Pode cadastrar coordenadores de campo em sua rede
-        canDeleteCoordinators: false,
-        canEditCoordinators: false,
+        canDeleteCoordinators: true, // Pode excluir coordenadores de sua rede
+        canEditCoordinators: true,   // Pode editar coordenadores de sua rede
         canCreateMembers: true, // Pode cadastrar eleitores
         canDeleteMembers: true,
         canEditMembers: true,

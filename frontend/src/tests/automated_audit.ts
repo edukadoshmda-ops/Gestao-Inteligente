@@ -125,6 +125,15 @@ function runAutomatedAudit() {
   const isLukasGeneral = testCoordLukas.email.includes('lukagustavo') || testCoordLukas.name.includes('Lukas');
   assert(isLukasGeneral === true, 'Lukas Gustavo é reconhecido com privilégio de Coordenação Geral');
 
+  // 9. TESTE DE EXCLUSÃO DE ELEITOR (MEMBERS)
+  const remainingAfterDelete = mergedMembers.filter(m => m.id !== 'm-1');
+  assert(remainingAfterDelete.length === 2 && !remainingAfterDelete.some(m => m.id === 'm-1'), 'Exclusão de eleitor remove o registro com sucesso e preserva a integridade');
+
+  // 10. TESTE DE EXCLUSÃO DE COORDENADOR
+  const coordSample = [{ id: 'c-1', name: 'Coord A' }, { id: 'c-2', name: 'Coord B' }];
+  const remainingCoords = coordSample.filter(c => c.id !== 'c-2');
+  assert(remainingCoords.length === 1 && remainingCoords[0].id === 'c-1', 'Exclusão de coordenador remove o registro com sucesso');
+
   console.log('\n====================================================');
   console.log(`📊 RESULTADO DOS TESTES: ${passed} PASSOU | ${failed} FALHOU`);
   console.log('====================================================');

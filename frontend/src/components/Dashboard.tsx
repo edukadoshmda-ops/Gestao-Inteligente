@@ -442,6 +442,32 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     setIsAddingCoordinator(false);
   };
 
+  const handleDeleteMember = async (id: string) => {
+    if (!confirm('Deseja realmente excluir este eleitor?')) return;
+    try {
+      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      setMembers(prev => prev.filter(m => m.id !== id));
+      await db.deleteMember(id, currentOrgId);
+      showToast('Eleitor excluído com sucesso!');
+    } catch (err) {
+      console.error('Erro ao excluir eleitor:', err);
+      showToast('Erro ao excluir eleitor.');
+    }
+  };
+
+  const handleDeleteCoordinator = async (id: string) => {
+    if (!confirm('Deseja realmente excluir este coordenador?')) return;
+    try {
+      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      setCoordinators(prev => prev.filter(c => c.id !== id));
+      await db.deleteCoordinator(id, currentOrgId);
+      showToast('Coordenador excluído com sucesso!');
+    } catch (err) {
+      console.error('Erro ao excluir coordenador:', err);
+      showToast('Erro ao excluir coordenador.');
+    }
+  };
+
   const { handleImportExcel, handleExportExcel, isExporting } = useExcelTools(members, saveMembers, showToast, organization);
 
   const handleClearAll = async () => {
@@ -819,12 +845,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                     <CoordinatorList
                       coordinators={coordinators}
                       onEdit={(c) => { setSelectedCoordinator(c); setIsAddingCoordinator(true); }}
-                      onDelete={permissions.canDeleteCoordinators ? async (id) => {
-                        const updated = coordinators.filter(c => c.id !== id);
-                        setCoordinators(updated);
-                        const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
-                        await db.saveCoordinators(updated, currentOrgId);
-                      } : undefined}
+                      onDelete={permissions.canDeleteCoordinators ? handleDeleteCoordinator : undefined}
                       onSelect={(c) => {
                         setActiveCoordinator(c);
                         setActiveTab('list');
@@ -862,7 +883,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                         ? filteredMembers.filter(m => m.coordinatorId === activeCoordinator.id)
                         : filteredMembers}
                       onEdit={(m) => { setSelectedMember(m); setIsAdding(true); }}
-                      onDelete={(id) => saveMembers(members.filter(m => m.id !== id))}
+                      onDelete={handleDeleteMember}
                       onSelect={() => { }}
                       welcomeTemplate={organization?.welcome_template}
                     />

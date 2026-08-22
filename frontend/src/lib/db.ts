@@ -203,6 +203,62 @@ export const db = {
     }
   },
 
+  async deleteMember(memberId: string, orgId?: string): Promise<void> {
+    try {
+      const globalRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (globalRaw) {
+        const list: Member[] = JSON.parse(globalRaw);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list.filter(m => m.id !== memberId)));
+      }
+      if (orgId && orgId !== 'undefined') {
+        const orgRaw = localStorage.getItem(`@AppGestao:members_${orgId}`);
+        if (orgRaw) {
+          const list: Member[] = JSON.parse(orgRaw);
+          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(list.filter(m => m.id !== memberId)));
+        }
+      }
+    } catch (e) {
+      console.warn("Erro ao excluir membro do storage local:", e);
+    }
+
+    const client = getClient();
+    if (client) {
+      try {
+        await client.from('members').delete().eq('id', memberId);
+      } catch (err) {
+        console.warn("Aviso ao excluir membro no Supabase:", err);
+      }
+    }
+  },
+
+  async deleteCoordinator(coordinatorId: string, orgId?: string): Promise<void> {
+    try {
+      const globalRaw = localStorage.getItem(COORD_STORAGE_KEY);
+      if (globalRaw) {
+        const list: Coordinator[] = JSON.parse(globalRaw);
+        localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(list.filter(c => c.id !== coordinatorId)));
+      }
+      if (orgId && orgId !== 'undefined') {
+        const orgRaw = localStorage.getItem(`@AppGestao:coordinators_${orgId}`);
+        if (orgRaw) {
+          const list: Coordinator[] = JSON.parse(orgRaw);
+          localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(list.filter(c => c.id !== coordinatorId)));
+        }
+      }
+    } catch (e) {
+      console.warn("Erro ao excluir coordenador do storage local:", e);
+    }
+
+    const client = getClient();
+    if (client) {
+      try {
+        await client.from('coordinators').delete().eq('id', coordinatorId);
+      } catch (err) {
+        console.warn("Aviso ao excluir coordenador no Supabase:", err);
+      }
+    }
+  },
+
   async saveOrganizationSettings(orgId: string, settings: any): Promise<void> {
     const key = `org_settings_${orgId}`;
     try {
