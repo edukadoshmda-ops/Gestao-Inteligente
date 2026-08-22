@@ -518,10 +518,27 @@ Extraia os dados com precisão cirúrgica e retorne APENAS um JSON puro sem mark
             <p className="text-blue-200 mt-1 font-medium italic text-[10px] sm:text-xs">Gestão de Base Eleitoral 2026</p>
           </div>
         </div>
-        <div className="text-right hidden md:block">
-          <span className="text-6xl font-black text-white/10 leading-none select-none">
-            {initialData ? '02' : '01'}
-          </span>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              const urlOrg = new URLSearchParams(window.location.search).get('org');
+              const orgParam = urlOrg ? `&org=${urlOrg}` : '';
+              const coordParam = networkId ? `&coord=${networkId}` : '';
+              const link = `${window.location.origin}?public=true${orgParam}${coordParam}`;
+              navigator.clipboard.writeText(link);
+              alert('✅ Link do formulário público copiado para a área de transferência:\n\n' + link);
+            }}
+            className="px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-gov-yellow hover:text-white transition-all text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 rounded-xl shadow-sm"
+            title="Copiar link direto para envio aos eleitores"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Copiar Link Público
+          </button>
+          <div className="text-right hidden md:block">
+            <span className="text-6xl font-black text-white/10 leading-none select-none">
+              {initialData ? '02' : '01'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -875,7 +892,7 @@ Extraia os dados com precisão cirúrgica e retorne APENAS um JSON puro sem mark
               </div>
               <input
                 type="text"
-                maxLength={3}
+                maxLength={4}
                 value={formData.voterZone}
                 onChange={(e) => setFormData({ ...formData, voterZone: e.target.value.replace(/\D/g, '') })}
                 className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-2xl focus:border-gov-yellow focus:bg-white outline-none bg-gray-50 transition-all font-medium placeholder:text-gray-300"

@@ -25,6 +25,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
     photo: '',
     whatsapp: '',
     network_id: networkId || '',
+    role: networkId ? 'coordinator' : 'area_coordinator'
   });
 
   useEffect(() => {
@@ -41,6 +42,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
         photo: initialData.photo || '',
         whatsapp: initialData.whatsapp || '',
         network_id: (initialData as any).network_id || networkId || '',
+        role: (initialData as any).role || ((initialData as any).network_id || networkId ? 'coordinator' : 'area_coordinator')
       });
     }
   }, [initialData, networkId]);
@@ -214,6 +216,29 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
             <p className="text-[9px] text-gray-400 font-bold">* Necessário para receber anúncios e comandos da IA direto no WhatsApp</p>
           </div>
 
+          {/* Tipo de Coordenação */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest flex items-center gap-2">
+              <span className="bg-gov-blue text-white text-[8px] font-black px-1.5 py-0.5 rounded-xl">Função</span>
+              Tipo de Coordenação
+            </label>
+            <select
+              value={formData.role || (formData.network_id ? 'coordinator' : 'area_coordinator')}
+              onChange={(e) => {
+                const newRole = e.target.value;
+                setFormData({ 
+                  ...formData, 
+                  role: newRole,
+                  ...(newRole === 'area_coordinator' && !networkId ? { network_id: '' } : {})
+                });
+              }}
+              className="w-full p-4 bg-gray-50 border-2 border-gov-blue/20 focus:border-gov-blue outline-none text-xs font-bold tracking-wider rounded-full"
+            >
+              <option value="area_coordinator">📍 Coordenador de Área (Líder Regional / de Rede)</option>
+              <option value="coordinator">🚶 Coordenador de Campo (Rua / Seção / Bairro)</option>
+            </select>
+          </div>
+
           {/* Seleção de Coordenador Superior (Hierarquia) */}
           {availableCoordinators.length > 0 && (
             <div className="space-y-2">
@@ -223,17 +248,21 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
               </label>
               <select
                 value={formData.network_id}
-                onChange={(e) => setFormData({ ...formData, network_id: e.target.value })}
+                onChange={(e) => setFormData({ 
+                  ...formData, 
+                  network_id: e.target.value,
+                  role: e.target.value ? 'coordinator' : formData.role
+                })}
                 className="w-full p-4 bg-gray-50 border-2 border-purple-100 focus:border-purple-500 outline-none text-xs font-bold tracking-wider rounded-full"
               >
-                <option value="">Sem coordenador superior (Coordenador Principal)</option>
+                <option value="">Sem coordenador superior (Líder de Área)</option>
                 {availableCoordinators.map(coord => (
                   <option key={coord.id} value={coord.id}>
                     {coord.name} - {coord.neighborhood}
                   </option>
                 ))}
               </select>
-              <p className="text-[9px] text-gray-400 font-bold">* Define a hierarquia de rede para filtragem de dados</p>
+              <p className="text-[9px] text-gray-400 font-bold">* Vincula este coordenador a uma rede específica</p>
             </div>
           )}
         </div>

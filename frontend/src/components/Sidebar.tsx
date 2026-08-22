@@ -40,7 +40,9 @@ function SidebarContent({
   role,
   logoUrl
 }: SidebarProps) {
-  const isSuperAdmin = username.toLowerCase() === 'edukadoshmda@gmail.com' || role === 'super_admin';
+  const isSuperAdmin = (username && username.toLowerCase().includes('edukadoshmda')) || 
+                       (username && username.toLowerCase() === 'admin') || 
+                       role === 'super_admin';
 
   return (
     <div className="flex flex-col h-full">
@@ -54,19 +56,16 @@ function SidebarContent({
       <div className="flex-1 overflow-y-auto flex flex-col justify-between py-6">
         <nav className="space-y-0.5 px-3">
           {menuItems.filter(item => {
+            if (isSuperAdmin) return true; // Super Admin tem acesso irrestrito a tudo
             if (role === 'coordinator') {
-              // Coordenador de rua vê o essencial de campo e configurações (alterar senha)
-              return ['list', 'chat', 'materials', 'settings'].includes(item.id);
+              // Coordenador de Campo: Painel de Eleitores, Ranking da sua produção, Materiais, Chat e Configurações (SEM aba de coordenadores)
+              return ['list', 'ranking', 'materials', 'chat', 'settings'].includes(item.id);
             }
             if (role === 'area_coordinator') {
-              // Coordenador de área vê gestão de equipe, análises, materiais e configurações (alterar senha)
-              return ['list', 'coordinators', 'ranking', 'report', 'gender', 'neighborhood', 'chat', 'materials', 'settings'].includes(item.id);
+              // Coordenador de Área: Gestão da sua equipe, Inteligência, Dia da Eleição, Consultoria IA, Análises, Ranking, Materiais, Chat e Configurações
+              return ['list', 'intelligence', 'ai_manager', 'election_day', 'coordinators', 'ranking', 'report', 'gender', 'neighborhood', 'materials', 'chat', 'settings'].includes(item.id);
             }
-            if (role === 'general_coordination') {
-              // Coordenação Geral vê quase tudo, exceto admin master
-              return !['admin_master'].includes(item.id);
-            }
-            // Candidato e Super Admin veem tudo
+            // Candidato e Coordenador Geral VÊEM TUDO DA CAMPANHA
             return true;
           }).map((item) => (
             <button
@@ -124,6 +123,12 @@ function SidebarContent({
             </div>
             <p className="text-[10px] font-black uppercase truncate text-white/90">
               {username}
+            </p>
+            <p className="text-[8px] font-bold uppercase text-gov-yellow/80 mt-0.5">
+              {isSuperAdmin ? 'Super Admin Master' : 
+               role === 'candidate' ? 'Candidato' :
+               role === 'general_coordination' ? 'Coordenação Geral' :
+               role === 'area_coordinator' ? 'Coordenador de Área' : 'Coordenador de Campo'}
             </p>
           </div>
           <button

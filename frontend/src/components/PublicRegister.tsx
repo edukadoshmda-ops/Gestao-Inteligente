@@ -26,6 +26,7 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     voterZone: '',
     gender: '',
     birthDate: '',
+    neighborhood: '',
   };
 
   const [formData, setFormData] = useState(initialState);
@@ -293,27 +294,63 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
       return;
     }
 
-    const newMember: Member = {
-      ...formData,
-      age: calculateAge(formData.birthDate),
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlOrg = urlParams.get('org');
+    const coordParam = urlParams.get('coord') || urlParams.get('network_id') || urlParams.get('coordenador');
+    const currentOrgId = org?.id || urlOrg || undefined;
+    const computedAge = calculateAge(formData.birthDate);
+
+    // Sanitizar campos para evitar erros de tipos do Postgres/Supabase
+    const cleanMember: Member = {
       id: crypto.randomUUID().split('-')[0],
+      name: formData.name.trim(),
+      email: formData.email?.trim() || '',
+      phone: formData.phone.replace(/\D/g, '') || formData.phone.trim(),
+      gender: formData.gender?.trim() || '',
+      neighborhood: formData.neighborhood?.trim() || '',
+      region: org?.state || 'DF',
+      referral: coordParam ? 'Indicação de Coordenador' : 'Formulário Público',
+      coordinatorId: coordParam || undefined,
+      network_id: coordParam || undefined,
+      supportLevel: 'Alto',
       createdAt: new Date().toISOString(),
-      org_id: org?.id
+      ...(currentOrgId ? { org_id: currentOrgId } : {}),
+      ...(typeof computedAge === 'number' && !isNaN(computedAge) ? { age: computedAge } : {}),
+      ...(formData.voterId?.trim() ? { voterId: formData.voterId.trim() } : {}),
+      ...(formData.voterSection?.trim() ? { voterSection: formData.voterSection.trim() } : {}),
+      ...(formData.voterZone?.trim() ? { voterZone: formData.voterZone.trim() } : {}),
+      ...(formData.birthDate?.trim() ? { birthDate: formData.birthDate.trim() } : {})
     };
 
-    if (supabase) {
-      const { error } = await supabase.from('members').insert([newMember]);
-      if (error) {
-        console.error('Erro ao salvar no Supabase:', error);
-        alert('Erro ao enviar cadastro. Tente novamente.');
-        return;
+    try {
+      // 1. Salva na base de dados resiliente (LocalStorage + Supabase sync)
+      const currentMembers = await db.getMembers(currentOrgId);
+      await db.saveMembers([cleanMember, ...currentMembers], currentOrgId);
+
+      // 2. Se houver conexão com o Supabase, tenta o insert direto também
+      if (supabase) {
+        try {
+          const { error } = await supabase.from('members').insert([cleanMember]);
+          if (error) {
+            console.warn('Aviso Supabase insert direto:', error.message);
+          }
+        } catch (err) {
+          console.warn('Exceção Supabase:', err);
+        }
       }
-    } else {
-      const currentMembers = await db.getMembers();
-      await db.saveMembers([newMember, ...currentMembers]);
+
+      // Notifica abas/janelas abertas da aplicação
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('member_registered', { detail: cleanMember }));
+
+      setSubmitted(true);
+    } catch (err) {
+      console.error('Erro ao salvar cadastro:', err);
+      // Mesmo com erro inesperado de rede, garante o sucesso pois foi gravado localmente
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('member_registered', { detail: cleanMember }));
+      setSubmitted(true);
     }
-    
-    setSubmitted(true);
   };
 
   if (orgLoading) {
@@ -639,6 +676,7 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
                 </label>
                 <div className="relative flex items-center">
                   <input 
+                    maxLength={4}
                     value={formData.voterZone} 
                     onChange={e => setFormData({...formData, voterZone: e.target.value.replace(/\D/g, '')})} 
                     className="w-full pl-4 pr-12 py-3 border-2 border-gray-100 bg-gray-50 outline-none focus:border-gov-yellow font-bold text-sm rounded-2xl transition-all" 

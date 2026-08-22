@@ -11,6 +11,8 @@ export interface Organization {
   subscription_status: 'active' | 'overdue' | 'pending' | 'trialing';
   logo_url?: string;
   created_at: string;
+  state?: string;
+  city?: string;
   theme_color?: string;
   theme_primary?: string;
   theme_secondary?: string;
@@ -46,6 +48,8 @@ export interface Member {
   observations?: string;
   latitude?: number;
   longitude?: number;
+  region?: string;
+  referral?: string;
   createdAt: string;
   org_id?: string;
   network_id?: string;

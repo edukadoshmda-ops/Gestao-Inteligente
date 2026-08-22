@@ -5,8 +5,11 @@
 ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS subdomain text;
 ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS asaas_customer_id text;
 
--- Adicionar campos para hierarquia de rede
+-- Adicionar campos para hierarquia de rede e perfis
 ALTER TABLE public.coordinators ADD COLUMN IF NOT EXISTS network_id text;
+ALTER TABLE public.coordinators ADD COLUMN IF NOT EXISTS role text;
+ALTER TABLE public.coordinators ADD COLUMN IF NOT EXISTS whatsapp text;
+ALTER TABLE public.coordinators ADD COLUMN IF NOT EXISTS password text;
 ALTER TABLE public.members ADD COLUMN IF NOT EXISTS network_id text;
 
 -- 0. Criação da Tabela de Organizações (Campanhas) - Movida para o topo por causa das chaves estrangeiras
@@ -183,8 +186,16 @@ DROP POLICY IF EXISTS "Acesso público ao chat" ON public.messages;
 DROP POLICY IF EXISTS "Isolamento de Membros" ON public.members;
 CREATE POLICY "Isolamento de Membros" ON public.members FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
 
+-- Permitir que formulários públicos de cadastro insiram novos membros/apoiadores
+DROP POLICY IF EXISTS "Cadastro público de membros" ON public.members;
+CREATE POLICY "Cadastro público de membros" ON public.members FOR INSERT WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Isolamento de Coordenadores" ON public.coordinators;
 CREATE POLICY "Isolamento de Coordenadores" ON public.coordinators FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
+
+-- Permitir cadastro público de coordenadores
+DROP POLICY IF EXISTS "Cadastro público de coordenadores" ON public.coordinators;
+CREATE POLICY "Cadastro público de coordenadores" ON public.coordinators FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Isolamento de Avisos" ON public.announcements;
 CREATE POLICY "Isolamento de Avisos" ON public.announcements FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
@@ -218,17 +229,17 @@ CREATE TABLE IF NOT EXISTS public.electoral_results (
 ALTER TABLE public.electoral_results ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Isolamento de Resultados Eleitorais" ON public.electoral_results;
-CREATE POLICY "Isolamento de Resultados Eleitorais" ON public.electoral_results FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
+CREATE POLICY "Isolamento de Resultados Eleitorais" ON public.electoral_results FOR ALL USING (
+  org_id IS NULL OR org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
+) WITH CHECK (
+  org_id IS NULL OR org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
+);
 
--- Habilita Realtime para resultados eleitorais
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'electoral_results') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE public.electoral_results;
-    END IF;
-END $$;
+-- Leitura pública de resultados eleitorais para inteligência e consultas
+DROP POLICY IF EXISTS "Leitura de Resultados Eleitorais" ON public.electoral_results;
+CREATE POLICY "Leitura de Resultados Eleitorais" ON public.electoral_results FOR SELECT USING (true);
 
--- 5. Habilita o Realtime
+-- 5. Habilita o Realtime de forma segura
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'members') THEN
@@ -243,4 +254,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'electoral_results') THEN
         ALTER PUBLICATION supabase_realtime ADD TABLE public.electoral_results;
     END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL;
 END $$;

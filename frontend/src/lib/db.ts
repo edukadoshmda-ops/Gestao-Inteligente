@@ -16,8 +16,8 @@ export const db = {
     if (client) {
       try {
         let query = client.from('members').select('*').order('createdAt', { ascending: false });
-        if (orgId) {
-          query = query.eq('org_id', orgId);
+        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+          query = query.or(`org_id.eq.${orgId},org_id.is.null`);
         }
         const { data, error } = await query;
         if (!error && data && data.length > 0) {
@@ -30,21 +30,10 @@ export const db = {
       }
     }
 
-    // Se encontramos dados no Supabase, atualizamos o LocalStorage e retornamos
-    if (supabaseMembers && supabaseMembers.length > 0) {
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(supabaseMembers));
-        if (orgId) {
-          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(supabaseMembers));
-        }
-      } catch {}
-      return supabaseMembers;
-    }
-
-    // Fallback inteligente para LocalStorage (caso Supabase esteja offline ou vazio na sessão)
+    // Carregar dados locais (LocalStorage) para resiliência máxima
     let localData: Member[] = [];
     try {
-      if (orgId) {
+      if (orgId && orgId !== 'undefined') {
         const orgSpecific = localStorage.getItem(`@AppGestao:members_${orgId}`);
         if (orgSpecific) localData = JSON.parse(orgSpecific);
       }
@@ -56,11 +45,22 @@ export const db = {
       console.warn("Erro ao ler dados locais:", e);
     }
 
-    // Se temos dados no LocalStorage mas o Supabase estava vazio, sincroniza em segundo plano
-    if (localData.length > 0 && client) {
-      setTimeout(() => {
-        db.saveMembers(localData, orgId).catch(() => {});
-      }, 1000);
+    // Se temos dados do Supabase, mesclamos com os dados locais sem duplicar IDs
+    if (supabaseMembers && supabaseMembers.length > 0) {
+      const existingIds = new Set(supabaseMembers.map(m => m.id));
+      const combined = [...supabaseMembers];
+      for (const lm of localData) {
+        if (lm && lm.id && !existingIds.has(lm.id)) {
+          combined.push(lm);
+        }
+      }
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(combined));
+        if (orgId && orgId !== 'undefined') {
+          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(combined));
+        }
+      } catch {}
+      return combined;
     }
 
     return localData;
@@ -162,12 +162,6 @@ export const db = {
       }
     } catch {}
 
-    if (localCoords.length > 0 && client) {
-      setTimeout(() => {
-        db.saveCoordinators(localCoords, orgId).catch(() => {});
-      }, 1000);
-    }
-
     return localCoords;
   },
 
@@ -182,11 +176,27 @@ export const db = {
     const client = getClient();
     if (client && coordinators.length > 0) {
       try {
-        const batch = coordinators.map(c => ({
-          ...c,
+        const validCoords = coordinators.filter(c => c && c.id && !c.id.startsWith('demo-'));
+        if (validCoords.length === 0) return;
+
+        const batch = validCoords.map(c => ({
+          id: c.id,
+          name: c.name,
+          email: c.email || null,
+          neighborhood: c.neighborhood || null,
+          city: c.city || null,
+          voterId: c.voterId || null,
+          voterSection: c.voterSection || null,
+          voterZone: c.voterZone || null,
+          photo: c.photo || null,
+          network_id: c.network_id || null,
+          role: (c as any).role || 'coordinator',
           org_id: c.org_id || orgId || undefined
         }));
-        await client.from('coordinators').upsert(batch, { onConflict: 'id' });
+        const { error } = await client.from('coordinators').upsert(batch, { onConflict: 'id' });
+        if (error && error.code !== '42703') {
+          console.warn("Aviso ao sincronizar coordenadores no Supabase:", error.message);
+        }
       } catch (e) {
         console.warn("Aviso ao salvar coordenadores:", e);
       }

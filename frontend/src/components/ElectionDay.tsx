@@ -10,16 +10,22 @@ interface ElectionDayProps {
 export default function ElectionDay({ members }: ElectionDayProps) {
   const [votedIds, setVotedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+  const [zoneFilter, setZoneFilter] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
+
+  const zones = useMemo(() => {
+    return Array.from(new Set(members.map(m => m.voterZone).filter(Boolean))).sort();
+  }, [members]);
 
   const filteredMembers = useMemo(() => {
     return members.filter(m => {
       const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                            (m.voterId && m.voterId.includes(searchTerm));
+      const matchesZone = zoneFilter ? m.voterZone === zoneFilter : true;
       const matchesSection = sectionFilter ? m.voterSection === sectionFilter : true;
-      return matchesSearch && matchesSection;
+      return matchesSearch && matchesZone && matchesSection;
     });
-  }, [members, searchTerm, sectionFilter]);
+  }, [members, searchTerm, zoneFilter, sectionFilter]);
 
   const stats = useMemo(() => {
     const total = members.length;
@@ -36,8 +42,9 @@ export default function ElectionDay({ members }: ElectionDayProps) {
   };
 
   const sections = useMemo(() => {
-    return Array.from(new Set(members.map(m => m.voterSection).filter(Boolean))).sort();
-  }, [members]);
+    const baseList = zoneFilter ? members.filter(m => m.voterZone === zoneFilter) : members;
+    return Array.from(new Set(baseList.map(m => m.voterSection).filter(Boolean))).sort();
+  }, [members, zoneFilter]);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-20">
@@ -80,16 +87,30 @@ export default function ElectionDay({ members }: ElectionDayProps) {
       </div>
 
       {/* Filtros de Alta Velocidade */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gov-blue/30" />
           <input 
             type="text"
-            placeholder="NOME DO ELEITOR..."
+            placeholder="NOME OU TÍTULO..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             className="w-full pl-12 pr-4 py-4 bg-white border-2 border-gov-blue outline-none font-black uppercase text-sm rounded-xl"
           />
+        </div>
+        <div className="relative">
+          <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gov-blue/30" />
+          <select 
+            value={zoneFilter}
+            onChange={e => {
+              setZoneFilter(e.target.value);
+              setSectionFilter('');
+            }}
+            className="w-full pl-12 pr-4 py-4 bg-white border-2 border-gov-blue outline-none font-black uppercase text-sm appearance-none rounded-xl"
+          >
+            <option value="">TODAS AS ZONAS</option>
+            {zones.map(z => <option key={z} value={z}>ZONA {z}</option>)}
+          </select>
         </div>
         <div className="relative">
           <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gov-blue/30" />

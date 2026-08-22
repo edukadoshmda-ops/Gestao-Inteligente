@@ -206,19 +206,39 @@ export default function PublicCoordinatorRegister({ onBack, onLoginSuccess }: Pu
   };
 
   const handleEnterDashboard = () => {
+    // 1. Limpar parâmetros de rota pública da URL para não retornar ao formulário
+    try {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('coord_register');
+      cleanUrl.searchParams.delete('coordenador');
+      cleanUrl.searchParams.delete('cadastro');
+      cleanUrl.searchParams.delete('public');
+      if (org?.id) cleanUrl.searchParams.set('org', org.id);
+      window.history.replaceState({}, '', cleanUrl.toString());
+    } catch {}
+
     if (registeredCoord) {
-      const fakeSession = {
-        user: { id: `coord-${registeredCoord.id}`, email: registeredCoord.email },
+      const coordSession = {
+        user: { 
+          id: `coord-${registeredCoord.id}`, 
+          email: registeredCoord.email,
+          user_metadata: {
+            full_name: registeredCoord.name,
+            role: registeredCoord.network_id ? 'coordinator' : 'area_coordinator'
+          }
+        },
         access_token: 'coord-token'
       };
+
       if (onLoginSuccess) {
-        onLoginSuccess(fakeSession);
+        onLoginSuccess(coordSession);
       } else {
-        // Redireciona para login
-        window.location.href = window.location.origin + (org?.id ? `?org=${org.id}` : '');
+        const orgParam = org?.id ? `?org=${org.id}` : '';
+        window.location.href = window.location.origin + orgParam;
       }
     } else {
-      window.location.href = window.location.origin;
+      const orgParam = org?.id ? `?org=${org.id}` : '';
+      window.location.href = window.location.origin + orgParam;
     }
   };
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Member, Coordinator } from '../types';
 import MemberList from './MemberList';
 import MemberForm from './MemberForm';
@@ -72,7 +72,10 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const [copyCoordSuccess, setCopyCoordSuccess] = useState(false);
   const [systemNotice, setSystemNotice] = useState<{ title: string, msg: string } | null>(null);
 
-  const isSuperAdmin = username.toLowerCase() === 'edukadoshmda@gmail.com' || username.toLowerCase() === 'admin' || profile.email?.toLowerCase() === 'edukadoshmda@gmail.com' || profile.role === 'super_admin';
+  const isSuperAdmin = username.toLowerCase().includes('edukadoshmda') || 
+                       username.toLowerCase() === 'admin' || 
+                       (profile.email && profile.email.toLowerCase().includes('edukadoshmda')) || 
+                       profile.role === 'super_admin';
   const isCampaignAdmin = profile.role === 'general_coordination' || profile.role === 'candidate' || isSuperAdmin;
   const isOverdue = organization?.subscription_status === 'overdue' && !isSuperAdmin;
 
@@ -219,30 +222,69 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     showToast('✅ Arquivo de agenda baixado! Abra-o para salvar os contatos.');
   };
 
-  useEffect(() => {
+  const loadDashboardData = useCallback(() => {
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
 
-    // Buscar membros com persistência resiliente e filtro de rede
-    db.getMembers(currentOrgId).then(allMembers => {
-      if (networkFilter) {
-        // Filtrar membros pela rede do coordenador
-        const networkMembers = allMembers.filter(m => m.network_id === profile.id);
-        setMembers(networkMembers);
+    // Buscar coordenadores e membros com persistência resiliente e filtro de hierarquia de rede
+    Promise.all([
+      db.getCoordinators(currentOrgId),
+      db.getMembers(currentOrgId)
+    ]).then(([allCoordinators, allMembers]) => {
+      if (networkFilter?.isRestricted) {
+        if (networkFilter.isArea) {
+          // Coordenador de Área: vê seus coordenadores de campo subordinados e os eleitores vinculados à sua rede (e registros da campanha)
+          const mySubordinates = allCoordinators.filter(c => c.network_id === profile.id || c.id === profile.id);
+          const subordinateIds = new Set(mySubordinates.map(c => c.id));
+          subordinateIds.add(profile.id);
+
+          setCoordinators(mySubordinates);
+          const networkMembers = allMembers.filter(m => 
+            m.network_id === profile.id || 
+            (m.coordinatorId && subordinateIds.has(m.coordinatorId)) ||
+            !m.coordinatorId // Apoiadores cadastrados pelo link geral da campanha
+          );
+          setMembers(networkMembers.length > 0 ? networkMembers : allMembers);
+        } else if (networkFilter.isField) {
+          // Coordenador de Campo: sem lista de outros coordenadores, apenas seus eleitores cadastrados
+          setCoordinators([]);
+          const fieldMembers = allMembers.filter(m => 
+            m.coordinatorId === profile.id || 
+            m.network_id === profile.id
+          );
+          setMembers(fieldMembers);
+        }
       } else {
+        // Candidato, Coordenador Geral e Super Admin têm VISÃO TOTAL DA CAMPANHA
+        setCoordinators(allCoordinators);
         setMembers(allMembers);
       }
+    }).catch(err => {
+      console.warn("Aviso ao carregar dados do dashboard:", err);
     });
+  }, [organization?.id, profile?.organization_id, profile?.org_id, profile.id, networkFilter]);
 
-    // Buscar coordenadores com persistência resiliente e filtro de rede
-    db.getCoordinators(currentOrgId).then(allCoordinators => {
-      if (networkFilter) {
-        // Filtrar coordenadores pela rede
-        const networkCoordinators = allCoordinators.filter(c => c.network_id === profile.id);
-        setCoordinators(networkCoordinators);
-      } else {
-        setCoordinators(allCoordinators);
-      }
-    });
+  useEffect(() => {
+    loadDashboardData();
+
+    // Sincronização automática quando a janela ganha foco ou quando há novo cadastro em outra aba
+    const handleStorageChange = () => loadDashboardData();
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleStorageChange);
+    window.addEventListener('member_registered', handleStorageChange);
+
+    // Canal Realtime do Supabase para atualização instantânea de novos membros
+    let subscription: any = null;
+    if (supabase) {
+      subscription = supabase
+        .channel('dashboard-realtime-members')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => {
+          loadDashboardData();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'coordinators' }, () => {
+          loadDashboardData();
+        })
+        .subscribe();
+    }
 
     // Busca aviso dinâmico do Supabase
     const fetchNotice = async () => {
@@ -260,7 +302,16 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       }
     };
     fetchNotice();
-  }, []);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleStorageChange);
+      window.removeEventListener('member_registered', handleStorageChange);
+      if (subscription && supabase) {
+        supabase.removeChannel(subscription);
+      }
+    };
+  }, [loadDashboardData]);
 
   // Debounce para busca profissional
   useEffect(() => {
@@ -310,7 +361,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     const finalMemberData = { ...memberData };
 
     // Prioriza o network_id do formulário (vem do MemberForm), se não tiver usa o networkFilter
-    const memberNetworkId = (memberData as any).network_id || (networkFilter ? profile.id : undefined);
+    let memberNetworkId = (memberData as any).network_id || (networkFilter ? profile.id : undefined);
 
     if (!isSuperAdmin && loggedInCoordinator) {
       finalMemberData.coordinatorId = loggedInCoordinator.id;
@@ -329,10 +380,10 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       }
     }
 
-    // Validação de permissão: Coordenador não pode criar membro sem network_id
-    if (!isSuperAdmin && profile.role === 'coordinator' && !memberNetworkId) {
-      alert('⚠️ ERRO: Coordenador deve estar associado a uma rede para cadastrar membros.');
-      return;
+    // Atribuição automática de rede e coordenador para novos eleitores
+    if (profile.role === 'coordinator' || profile.role === 'area_coordinator') {
+      if (!memberNetworkId) memberNetworkId = profile.id;
+      if (!finalMemberData.coordinatorId) finalMemberData.coordinatorId = profile.id;
     }
 
     if (selectedMember) {
@@ -703,6 +754,14 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       <Download className="w-3.5 h-3.5" /> {isExporting ? '...' : 'Exportar'}
                     </button>
 
+                    <button
+                      onClick={() => setShowShareModal(true)}
+                      className="bg-teal-600 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-teal-700 transition-all shadow-sm rounded-2xl"
+                      title="Copiar e compartilhar link de cadastro de eleitores"
+                    >
+                      <Share2 className="w-3.5 h-3.5" /> Link do Eleitor
+                    </button>
+
                     {permissions.canCreateMembers && (
                       <button
                         onClick={() => setIsAdding(true)}
@@ -847,46 +906,65 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         </main>
       </div>
 
-      {/* Modal de Compartilhamento WhatsApp */}
+      {/* Modal de Compartilhamento WhatsApp de Eleitores */}
       <AnimatePresence>
-        {showShareModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gov-blue/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white p-8 border-4 border-gov-blue max-w-sm w-full text-center shadow-2xl relative rounded-2xl"
-            >
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gov-blue"
+        {showShareModal && (() => {
+          const coordParam = (loggedInCoordinator || profile.role === 'coordinator' || profile.role === 'area_coordinator') ? `&coord=${profile.id}` : '';
+          const publicVoterUrl = `${window.location.origin}?public=true&org=${effectiveOrgId}${coordParam}`;
+          const whatsappShareMsg = `Olá! Faça parte do nosso time de apoiadores para a campanha ${organization?.candidate_name || 'Gestão Inteligente 2026'}. Cadastre-se pelo link oficial:\n\n${publicVoterUrl}`;
+
+          return (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gov-blue/60 backdrop-blur-sm">
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white p-6 sm:p-8 border-4 border-emerald-600 max-w-md w-full text-center shadow-2xl relative rounded-3xl"
               >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Share2 className="w-8 h-8 text-green-600" />
-              </div>
-              <h3 className="text-xl font-black text-gov-blue uppercase mb-2">Link de Cadastro</h3>
-              <p className="text-[10px] text-gray-500 mb-6 font-bold uppercase tracking-widest leading-relaxed">
-                Envie este link para sua equipe ou em grupos de WhatsApp para que os apoiadores se cadastrem sozinhos.
-              </p>
-              <div className="bg-gray-50 p-4 border-2 border-dashed border-gov-blue/20 mb-6 break-all text-[10px] font-mono font-bold text-blue-600 select-all rounded-2xl">
-                {`${window.location.origin}?public=true&org=${effectiveOrgId}`}
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}?public=true&org=${effectiveOrgId}`);
-                  setCopySuccess(true);
-                  setTimeout(() => setCopySuccess(false), 2000);
-                }}
-                className={`w-full py-4 ${copySuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg rounded-xl`}
-              >
-                {copySuccess ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                {copySuccess ? 'Copiado para a área de transferência!' : 'Copiar Link para WhatsApp'}
-              </button>
-            </motion.div>
-          </div>
-        )}
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-gov-blue p-1 rounded-full hover:bg-gray-100 transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-5 shadow-sm">
+                  <Share2 className="w-8 h-8 text-emerald-600" />
+                </div>
+                <h3 className="text-xl font-black text-gov-blue uppercase mb-2">Link de Cadastro de Eleitores</h3>
+                <p className="text-[10px] text-gray-500 mb-5 font-bold uppercase tracking-widest leading-relaxed">
+                  Envie este link para apoiadores, familiares e em grupos de WhatsApp para realizarem seu próprio cadastro.
+                </p>
+                <div className="bg-gray-50 p-4 border-2 border-dashed border-emerald-300 mb-5 break-all text-[11px] font-mono font-bold text-emerald-700 select-all rounded-2xl">
+                  {publicVoterUrl}
+                </div>
+
+                <div className="space-y-3">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(publicVoterUrl);
+                      setCopySuccess(true);
+                      setTimeout(() => setCopySuccess(false), 2000);
+                    }}
+                    className={`w-full py-3.5 ${copySuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-95 transition-all shadow-md rounded-xl`}
+                  >
+                    {copySuccess ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copySuccess ? 'Link Copiado com Sucesso!' : 'Copiar Link de Cadastro'}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappShareMsg)}`, '_blank');
+                    }}
+                    className="w-full py-3.5 bg-emerald-600 text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-md rounded-xl"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Enviar Direto no WhatsApp
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Modal de Compartilhamento de Link de Coordenadores */}

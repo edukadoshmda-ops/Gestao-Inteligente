@@ -143,44 +143,58 @@ export default function AdminCreateCampaign({ onSuccess, onCancel }: AdminCreate
         }
       }
 
-      // Criar usuário coordenador usando admin API (evita rate limiting)
-      console.log('Criando usuário coordenador...');
+      // Criar usuário coordenador geral usando admin API
+      console.log('Criando usuário Coordenador Geral...');
       const { data: coordinatorAuth, error: coordinatorError } = await createOrGetUser(
         formData.coordinator_email,
         formData.coordinator_password,
         {
           full_name: formData.coordinator_name,
           phone: formData.coordinator_phone,
-          role: 'coordinator'
+          role: 'general_coordination'
         }
       );
 
       if (coordinatorError) {
-        console.error('Erro ao criar usuário coordenador:', coordinatorError);
-        throw new Error(`Erro ao criar usuário coordenador: ${coordinatorError.message}`);
+        console.error('Erro ao criar usuário Coordenador Geral:', coordinatorError);
+        throw new Error(`Erro ao criar usuário Coordenador Geral: ${coordinatorError.message}`);
       }
 
-      console.log('Usuário coordenador criado:', coordinatorAuth.user?.id);
+      console.log('Usuário Coordenador Geral criado:', coordinatorAuth.user?.id);
 
-      // Criar perfil do coordenador usando supabaseAdmin para contornar RLS
+      // Criar perfil do Coordenador Geral usando supabaseAdmin para contornar RLS
       if (coordinatorAuth.user) {
-        console.log('Criando perfil do coordenador...');
+        console.log('Criando perfil do Coordenador Geral...');
         const { error: coordinatorProfileError } = await supabaseAdmin
           .from('profiles')
           .upsert({
             id: coordinatorAuth.user.id,
             email: formData.coordinator_email,
             full_name: formData.coordinator_name,
-            role: 'coordinator',
+            role: 'general_coordination',
             organization_id: orgData.id
           }, {
             onConflict: 'id'
           });
 
         if (coordinatorProfileError) {
-          console.error('Erro ao criar perfil do coordenador:', coordinatorProfileError);
-          throw new Error(`Erro ao criar perfil do coordenador: ${coordinatorProfileError.message}`);
+          console.error('Erro ao criar perfil do Coordenador Geral:', coordinatorProfileError);
+          throw new Error(`Erro ao criar perfil do Coordenador Geral: ${coordinatorProfileError.message}`);
         }
+
+        // Também cadastra na tabela coordinators como Coordenador Geral
+        try {
+          await supabaseAdmin
+            .from('coordinators')
+            .upsert({
+              id: coordinatorAuth.user.id,
+              name: formData.coordinator_name,
+              email: formData.coordinator_email,
+              org_id: orgData.id,
+              city: formData.candidate_name,
+              neighborhood: 'Coordenação Geral'
+            }, { onConflict: 'id' });
+        } catch {}
       }
 
       console.log('Campanha criada com sucesso!');
@@ -294,12 +308,17 @@ export default function AdminCreateCampaign({ onSuccess, onCancel }: AdminCreate
           </div>
         </div>
 
-        {/* Coordenador */}
-        <div className="bg-green-50 p-4 rounded-xl">
-          <h3 className="text-sm font-black text-gov-blue uppercase mb-4 flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Dados do Coordenador
-          </h3>
+        {/* Coordenador Geral */}
+        <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-black text-gov-blue uppercase flex items-center gap-2">
+              <Users className="w-4 h-4 text-green-600" />
+              Dados do Coordenador Geral
+            </h3>
+            <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-green-200 text-green-800 rounded-md">
+              Acesso Total à Campanha
+            </span>
+          </div>
           <div className="space-y-3">
             <div>
               <label className="text-[10px] font-black uppercase text-gray-400 block mb-1">Nome *</label>

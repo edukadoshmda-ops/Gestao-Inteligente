@@ -288,7 +288,36 @@ export default function App() {
   const fetchProfile = async (userId: string, userEmail?: string) => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    // 1. Se for login de coordenador cadastrado (prioridade máxima)
+    // 0. Super Admin Master Global (Privilégio absoluto para o dono da plataforma)
+    const isMasterAdminUser = (userEmail && userEmail.toLowerCase().includes('edukadoshmda')) ||
+                             userId.toLowerCase().includes('edukadoshmda') ||
+                             userId === 'admin';
+
+    if (isMasterAdminUser) {
+      let orgData: any = brandOrg;
+      if (!orgData || orgData.id === 'demo-org') {
+        try {
+          const { data: dbOrg } = await supabase.from('organizations').select('*').limit(1).maybeSingle();
+          if (dbOrg) orgData = dbOrg;
+        } catch {}
+      }
+
+      const masterProfile: Profile = {
+        id: userId,
+        full_name: 'Super Admin Master (Eduardo)',
+        email: userEmail || 'edukadoshmda@gmail.com',
+        role: 'super_admin',
+        org_id: orgData?.id || 'master-org',
+        organization_id: orgData?.id || 'master-org',
+        organization: orgData
+      };
+      setBrandOrg(orgData);
+      setProfile(masterProfile);
+      setLoading(false);
+      return masterProfile;
+    }
+
+    // 1. Se for login de coordenador cadastrado (prioridade máxima para outros usuários)
     if (userId.startsWith('coord-') || (userEmail && !uuidRegex.test(userId))) {
       const coordId = userId.replace('coord-', '');
       try {
@@ -297,13 +326,24 @@ export default function App() {
           c => c.id === coordId || (c.email && c.email.trim().toLowerCase() === userEmail?.trim().toLowerCase())
         );
         if (found) {
-          const isAreaCoord = !(found as any).network_id || (found as any).role === 'area_coordinator';
-          const coordRole = (found as any).role || (isAreaCoord ? 'area_coordinator' : 'coordinator');
+          let coordRole = (found as any).role;
+          const isGeneralCoordinator = userEmail?.toLowerCase().includes('lukagustavo') || 
+                                      found.name?.toLowerCase().includes('lukas') || 
+                                      userEmail?.toLowerCase().includes('coordenacao') || 
+                                      !(found as any).network_id;
+
+          if (isGeneralCoordinator) {
+            coordRole = 'general_coordination';
+          } else if (!coordRole) {
+            coordRole = 'coordinator';
+          }
+
           const coordProfile = {
             id: found.id,
             email: found.email || userEmail,
             full_name: found.name,
             role: coordRole,
+            org_id: found.org_id || brandOrg?.id || 'master-org',
             organization_id: found.org_id || brandOrg?.id,
             organization: brandOrg
           };
@@ -314,6 +354,20 @@ export default function App() {
       } catch (coordErr) {
         console.warn('Erro ao carregar perfil de coordenador:', coordErr);
       }
+
+      // Fallback imediato para coordenador recém-cadastrado
+      const savedOrg = brandOrg || JSON.parse(localStorage.getItem('forja_current_organization') || 'null');
+      const fallbackCoordProfile = {
+        id: coordId,
+        email: userEmail,
+        full_name: (session?.user?.user_metadata?.full_name) || userEmail?.split('@')[0] || 'Coordenador',
+        role: (session?.user?.user_metadata?.role) || 'coordinator',
+        organization_id: savedOrg?.id,
+        organization: savedOrg
+      };
+      setProfile(fallbackCoordProfile as any);
+      setLoading(false);
+      return fallbackCoordProfile;
     }
 
     // 2. Demo roles apenas para contas oficiais de demonstração (se a sessão for demo-*)
@@ -416,7 +470,14 @@ export default function App() {
             window.dispatchEvent(new Event('logoUpdated'));
           }
         }
-        const updatedProfile = { ...data, organization: orgData };
+        let role = data.role;
+        const isGeneral = data.email?.toLowerCase().includes('lukagustavo') || 
+                          data.full_name?.toLowerCase().includes('lukas') || 
+                          data.email?.toLowerCase().includes('coordenacao');
+        if (isGeneral) {
+          role = 'general_coordination';
+        }
+        const updatedProfile = { ...data, role, organization: orgData };
         setProfile(updatedProfile);
         setLoading(false);
         return updatedProfile;
@@ -426,13 +487,16 @@ export default function App() {
         const found = coords.find(
           c => (c.email && c.email.trim().toLowerCase() === userEmail?.trim().toLowerCase()) || c.id === userId
         );
-        const isArea = found ? (!(found as any).network_id || (found as any).role === 'area_coordinator') : false;
+        const isGeneral = userEmail?.toLowerCase().includes('lukagustavo') || 
+                          userEmail?.toLowerCase().includes('coordenacao') || 
+                          (found && (found.name?.toLowerCase().includes('lukas') || !(found as any).network_id));
+        const role = isGeneral ? 'general_coordination' : (found ? ((found as any).role || 'coordinator') : 'coordinator');
 
         const fallbackProfile = {
           id: found ? found.id : userId,
           email: userEmail,
           full_name: found ? found.name : userEmail.split('@')[0],
-          role: found ? ((found as any).role || (isArea ? 'area_coordinator' : 'coordinator')) : 'coordinator',
+          role,
           organization_id: brandOrg?.id || undefined,
           organization: brandOrg
         };
@@ -452,9 +516,22 @@ export default function App() {
 
   const handleLogin = async (s: any) => {
     setLoading(true);
+    setIsPublicCoordForm(false);
+    setIsPublicForm(false);
+    setShowSales(false);
+    setShowLogin(false);
+
+    try {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('coord_register');
+      cleanUrl.searchParams.delete('coordenador');
+      cleanUrl.searchParams.delete('cadastro');
+      cleanUrl.searchParams.delete('public');
+      window.history.replaceState({}, '', cleanUrl.toString());
+    } catch {}
+
     setSession(s);
     await fetchProfile(s.user.id, s.user.email);
-    setShowLogin(false);
     setLoading(false);
   };
 
