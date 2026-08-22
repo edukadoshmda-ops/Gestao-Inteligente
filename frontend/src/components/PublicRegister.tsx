@@ -172,99 +172,139 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     if (!file) return;
 
     setIsScanning(true);
-    setScanFeedback('Analisando documento...');
+    setScanFeedback('Otimizando imagem do documento...');
     try {
+      // 1. Redimensionar e comprimir imagem no Canvas
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (readerEvent) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxDim = 1600;
+            let { width, height } = img;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+              resolve(dataUrl.split(',')[1]);
+            } else {
+              resolve((readerEvent.target?.result as string).split(',')[1]);
+            }
+          };
+          img.onerror = reject;
+          img.src = readerEvent.target?.result as string;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
       let extractedData: any = null;
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
 
       if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
-        try {
-          const reader = new FileReader();
-          const base64Promise = new Promise<string>((resolve) => {
-            reader.onload = () => {
-              const res = reader.result as string;
-              const base64 = res.split(',')[1];
-              resolve(base64);
-            };
-            reader.readAsDataURL(file);
-          });
-          const base64Data = await base64Promise;
+        setScanFeedback('IA analisando dados do eleitor...');
+        const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
 
-          const prompt = `Analise a foto deste documento de eleitor brasileiro (Título, RG, CNH). Retorne APENAS um JSON puro:
+        const prompt = `Analise a foto deste documento de eleitor brasileiro (Título, RG, CNH). Retorne APENAS um JSON puro:
 {
   "name": "Nome Completo",
   "voterId": "12 dígitos do título",
-  "voterZone": "Zona",
-  "voterSection": "Seção",
+  "voterZone": "Zona (número)",
+  "voterSection": "Seção (número)",
   "birthDate": "YYYY-MM-DD",
   "gender": "Masculino" ou "Feminino"
 }`;
 
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: prompt },
-                  { inline_data: { mime_type: file.type || 'image/jpeg', data: base64Data } }
-                ]
-              }]
-            })
-          });
+        for (const model of modelsToTry) {
+          if (extractedData?.name) break;
+          try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    { inline_data: { mime_type: 'image/jpeg', data: base64Data } }
+                  ]
+                }]
+              })
+            });
 
-          if (response.ok) {
-            const json = await response.json();
-            const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-            extractedData = JSON.parse(cleanJson);
+            if (response.ok) {
+              const json = await response.json();
+              const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              const matchJson = textResponse.match(/\{[\s\S]*\}/);
+              if (matchJson) {
+                extractedData = JSON.parse(matchJson[0]);
+              }
+            }
+          } catch (geminiErr) {
+            console.warn(`Fallback to ${model}:`, geminiErr);
           }
-        } catch (geminiErr) {
-          console.warn("Fallback to Tesseract:", geminiErr);
         }
       }
 
       if (!extractedData || !extractedData.name) {
-        const worker = await createWorker('por');
-        const { data: { text } } = await worker.recognize(file);
-        await worker.terminate();
+        setScanFeedback('Processando OCR local...');
+        try {
+          const worker = await createWorker('por');
+          const { data: { text } } = await worker.recognize(file);
+          await worker.terminate();
 
-        const nameMatch = text.match(/NOME\s*[:\s]*([^\n]+)/i);
-        const voterIdMatch = text.match(/T[ÍI]TULO\s*DE\s*ELEITOR\s*[:\s]*(\d{4}\s*\d{4}\s*\d{4})/i) || text.match(/(\d{4}\s*\d{4}\s*\d{4})/);
-        const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{4})/i);
-        const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{3})/i);
-        const birthMatch = text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
+          const nameMatch = text.match(/NOME\s*[:\s]*([^\n]+)/i);
+          const voterIdMatch = text.match(/T[ÍI]TULO\s*DE\s*ELEITOR\s*[:\s]*(\d{4}\s*\d{4}\s*\d{4})/i) || text.match(/(\d{4}\s*\d{4}\s*\d{4})/);
+          const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{4})/i);
+          const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{3})/i);
+          const birthMatch = text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
 
-        let formattedBirth = '';
-        if (birthMatch) {
-          formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+          let formattedBirth = '';
+          if (birthMatch) {
+            formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+          }
+
+          extractedData = {
+            name: nameMatch ? nameMatch[1].trim() : '',
+            voterId: voterIdMatch ? voterIdMatch[1].replace(/\s/g, '').slice(0, 12) : '',
+            voterSection: sectionMatch ? sectionMatch[1] : '',
+            voterZone: zoneMatch ? zoneMatch[1] : '',
+            birthDate: formattedBirth
+          };
+        } catch (tessErr) {
+          console.warn("Tesseract OCR fallback:", tessErr);
         }
-
-        extractedData = {
-          name: nameMatch ? nameMatch[1].trim() : '',
-          voterId: voterIdMatch ? voterIdMatch[1].replace(/\s/g, '').slice(0, 12) : '',
-          voterSection: sectionMatch ? sectionMatch[1] : '',
-          voterZone: zoneMatch ? zoneMatch[1] : '',
-          birthDate: formattedBirth
-        };
       }
 
-      setFormData(prev => ({
-        ...prev,
-        name: extractedData.name || prev.name,
-        voterId: extractedData.voterId || prev.voterId,
-        voterSection: extractedData.voterSection || prev.voterSection,
-        voterZone: extractedData.voterZone || prev.voterZone,
-        birthDate: extractedData.birthDate || prev.birthDate,
-        gender: extractedData.gender || prev.gender,
-      }));
-
-      setScanFeedback('✨ Dados preenchidos com sucesso!');
-      setTimeout(() => setScanFeedback(null), 4000);
-      
-    } catch (error) {
-      console.error('Erro no OCR:', error);
-      alert('Não foi possível ler os dados. Tente uma foto mais nítida.');
+      if (extractedData && (extractedData.name || extractedData.voterId)) {
+        setFormData(prev => ({
+          ...prev,
+          name: extractedData.name || prev.name,
+          voterId: extractedData.voterId ? extractedData.voterId.replace(/\D/g, '').slice(0, 12) : prev.voterId,
+          voterSection: extractedData.voterSection ? extractedData.voterSection.replace(/\D/g, '').slice(0, 4) : prev.voterSection,
+          voterZone: extractedData.voterZone ? extractedData.voterZone.replace(/\D/g, '').slice(0, 3) : prev.voterZone,
+          birthDate: extractedData.birthDate || prev.birthDate,
+          gender: extractedData.gender || prev.gender,
+        }));
+        setScanFeedback('✨ Dados do documento reconhecidos!');
+        setTimeout(() => setScanFeedback(null), 4000);
+      } else {
+        alert('Não foi possível ler o documento com clareza. Preencha os campos abaixo.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao processar a imagem do documento.');
     } finally {
       setIsScanning(false);
       e.target.value = '';

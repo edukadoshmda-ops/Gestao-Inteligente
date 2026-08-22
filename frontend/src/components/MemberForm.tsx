@@ -307,114 +307,155 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
     if (!file) return;
 
     setIsScanning(true);
-    setScanFeedback('Analisando imagem do Título de Eleitor...');
+    setScanFeedback('Otimizando imagem do documento...');
 
     try {
+      // 1. Redimensionar e comprimir imagem no Canvas para envio rápido e ultra nítido
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (readerEvent) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxDim = 1600;
+            let { width, height } = img;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+              resolve(dataUrl.split(',')[1]);
+            } else {
+              resolve((readerEvent.target?.result as string).split(',')[1]);
+            }
+          };
+          img.onerror = reject;
+          img.src = readerEvent.target?.result as string;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
       let extractedData: any = null;
       const apiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
 
-      // 1. Tenta Gemini Vision primeiro se disponível
+      // 2. Tenta Gemini Vision com múltiplos modelos oficiais (gemini-1.5-flash, gemini-2.0-flash)
       if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
-        try {
-          const reader = new FileReader();
-          const base64Promise = new Promise<string>((resolve) => {
-            reader.onload = () => {
-              const res = reader.result as string;
-              const base64 = res.split(',')[1];
-              resolve(base64);
-            };
-            reader.readAsDataURL(file);
-          });
-          const base64Data = await base64Promise;
+        setScanFeedback('IA analisando documento...');
+        const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
 
-          const prompt = `Analise a foto deste documento brasileiro (Título de Eleitor, e-Título, RG ou CNH).
-Extraia os dados com precisão cirúrgica e retorne APENAS um JSON puro sem markdown ou crases:
+        const prompt = `Analise a foto deste documento brasileiro (Título de Eleitor, e-Título, RG ou CNH).
+Extraia os dados com precisão e retorne APENAS um JSON puro sem crases ou markdown:
 {
   "name": "Nome Completo do Eleitor",
-  "voterId": "Número do Título de Eleitor (12 dígitos numéricos)",
-  "voterZone": "Zona Eleitoral (3 dígitos numéricos)",
-  "voterSection": "Seção Eleitoral (4 dígitos numéricos)",
+  "voterId": "Número do Título de Eleitor (apenas os 12 dígitos numéricos)",
+  "voterZone": "Zona Eleitoral (apenas números, ex 001)",
+  "voterSection": "Seção Eleitoral (apenas números, ex 0123)",
   "birthDate": "YYYY-MM-DD",
-  "neighborhood": "Bairro ou Município",
+  "neighborhood": "Bairro ou Cidade",
   "gender": "Masculino" ou "Feminino"
 }`;
 
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: prompt },
-                  { inline_data: { mime_type: file.type || 'image/jpeg', data: base64Data } }
-                ]
-              }]
-            })
-          });
+        for (const model of modelsToTry) {
+          if (extractedData?.name) break;
+          try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    { inline_data: { mime_type: 'image/jpeg', data: base64Data } }
+                  ]
+                }]
+              })
+            });
 
-          if (response.ok) {
-            const json = await response.json();
-            const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-            extractedData = JSON.parse(cleanJson);
+            if (response.ok) {
+              const json = await response.json();
+              const textResponse = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              const matchJson = textResponse.match(/\{[\s\S]*\}/);
+              if (matchJson) {
+                extractedData = JSON.parse(matchJson[0]);
+              }
+            }
+          } catch (modelErr) {
+            console.warn(`Tentativa com ${model} falhou:`, modelErr);
           }
-        } catch (geminiErr) {
-          console.warn("Gemini Vision OCR fallback:", geminiErr);
         }
       }
 
-      // 2. Fallback para Tesseract Local se Gemini não finalizou
+      // 3. Fallback para Tesseract Local se a IA não retornou
       if (!extractedData || !extractedData.name) {
-        setScanFeedback('Processando OCR de alta precisão...');
-        const worker = await createWorker('por');
-        const { data: { text } } = await worker.recognize(file);
-        await worker.terminate();
+        setScanFeedback('Processando OCR de alta resolução...');
+        try {
+          const worker = await createWorker('por');
+          const { data: { text } } = await worker.recognize(file);
+          await worker.terminate();
 
-        const nameMatch = text.match(/NOME(?:\s*DO\s*ELEITOR)?\s*[:\s]*([^\n\r]+)/i) ||
-                          text.match(/ELEITOR\s*[:\s]*([^\n\r]+)/i);
-        const voterIdMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4})/i) ||
-                             text.match(/INSCRI[ÇC][ÃA]O\s*[:\s]*(\d[\d\s]+)/i) ||
-                             text.match(/T[ÍI]TULO\s*[:\s]*(\d[\d\s]+)/i);
-        const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{1,4})/i);
-        const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{1,3})/i);
-        const birthMatch = text.match(/DATA\s*DE\s*NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
-                           text.match(/NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
-                           text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
-        const cityMatch = text.match(/MUNIC[ÍI]PIO\s*[:\s]*([^\n\r\/\-]+)/i);
+          const nameMatch = text.match(/NOME(?:\s*DO\s*ELEITOR)?\s*[:\s]*([^\n\r]+)/i) ||
+                            text.match(/ELEITOR\s*[:\s]*([^\n\r]+)/i);
+          const voterIdMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4})/i) ||
+                               text.match(/INSCRI[ÇC][ÃA]O\s*[:\s]*(\d[\d\s]+)/i) ||
+                               text.match(/T[ÍI]TULO\s*[:\s]*(\d[\d\s]+)/i);
+          const sectionMatch = text.match(/SE[ÇC][ÃA]O\s*[:\s]*(\d{1,4})/i);
+          const zoneMatch = text.match(/ZONA\s*[:\s]*(\d{1,3})/i);
+          const birthMatch = text.match(/DATA\s*DE\s*NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
+                             text.match(/NASCIMENTO\s*[:\s]*(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/i) ||
+                             text.match(/(\d{2})[\/\.](\d{2})[\/\.](\d{4})/);
+          const cityMatch = text.match(/MUNIC[ÍI]PIO\s*[:\s]*([^\n\r\/\-]+)/i);
 
-        let formattedBirth = '';
-        if (birthMatch) {
-          formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+          let formattedBirth = '';
+          if (birthMatch) {
+            formattedBirth = `${birthMatch[3]}-${birthMatch[2]}-${birthMatch[1]}`;
+          }
+
+          extractedData = {
+            name: nameMatch ? nameMatch[1].trim() : '',
+            voterId: voterIdMatch ? voterIdMatch[1].replace(/\D/g, '').slice(0, 12) : '',
+            voterSection: sectionMatch ? sectionMatch[1].padStart(4, '0') : '',
+            voterZone: zoneMatch ? zoneMatch[1].padStart(3, '0') : '',
+            birthDate: formattedBirth,
+            neighborhood: cityMatch ? cityMatch[1].trim() : ''
+          };
+        } catch (tessErr) {
+          console.warn("Tesseract fallback:", tessErr);
         }
-
-        extractedData = {
-          name: nameMatch ? nameMatch[1].trim() : '',
-          voterId: voterIdMatch ? voterIdMatch[1].replace(/\D/g, '').slice(0, 12) : '',
-          voterSection: sectionMatch ? sectionMatch[1].padStart(4, '0') : '',
-          voterZone: zoneMatch ? zoneMatch[1].padStart(3, '0') : '',
-          birthDate: formattedBirth,
-          neighborhood: cityMatch ? cityMatch[1].trim() : ''
-        };
       }
 
-      // Preenche os dados automaticamente
-      setFormData(prev => ({
-        ...prev,
-        name: extractedData.name ? extractedData.name.trim() : prev.name,
-        voterId: extractedData.voterId ? extractedData.voterId.replace(/\D/g, '') : prev.voterId,
-        voterSection: extractedData.voterSection ? extractedData.voterSection.replace(/\D/g, '') : prev.voterSection,
-        voterZone: extractedData.voterZone ? extractedData.voterZone.replace(/\D/g, '') : prev.voterZone,
-        birthDate: extractedData.birthDate || prev.birthDate,
-        neighborhood: extractedData.neighborhood ? extractedData.neighborhood.trim() : prev.neighborhood,
-        gender: extractedData.gender || prev.gender,
-      }));
+      // 4. Preenche os dados automaticamente no formulário
+      if (extractedData && (extractedData.name || extractedData.voterId)) {
+        setFormData(prev => ({
+          ...prev,
+          name: extractedData.name ? extractedData.name.trim() : prev.name,
+          voterId: extractedData.voterId ? extractedData.voterId.replace(/\D/g, '').slice(0, 12) : prev.voterId,
+          voterSection: extractedData.voterSection ? extractedData.voterSection.replace(/\D/g, '').slice(0, 4) : prev.voterSection,
+          voterZone: extractedData.voterZone ? extractedData.voterZone.replace(/\D/g, '').slice(0, 3) : prev.voterZone,
+          birthDate: extractedData.birthDate || prev.birthDate,
+          neighborhood: extractedData.neighborhood ? extractedData.neighborhood.trim() : prev.neighborhood,
+          gender: extractedData.gender || prev.gender,
+        }));
 
-      setScanFeedback('✨ Dados do Título preenchidos com sucesso!');
-      setTimeout(() => setScanFeedback(null), 5000);
+        setScanFeedback('✨ Dados do Título preenchidos com sucesso!');
+        setTimeout(() => setScanFeedback(null), 5000);
+      } else {
+        alert('Não foi possível reconhecer os dados do documento automaticamente. Por favor, preencha manualmente ou envie uma foto mais nítida.');
+      }
 
     } catch (error) {
       console.error('Erro no OCR:', error);
-      alert('Não foi possível ler os dados da imagem. Certifique-se de que a foto está bem iluminada e nítida.');
+      alert('Não foi possível processar a imagem. Certifique-se de que a foto está bem iluminada e nítida.');
     } finally {
       setIsScanning(false);
       e.target.value = '';
