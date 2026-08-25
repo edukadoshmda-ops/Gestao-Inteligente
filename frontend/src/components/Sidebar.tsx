@@ -124,12 +124,19 @@ function SidebarContent({
             <p className="text-[10px] font-black uppercase truncate text-white/90">
               {username}
             </p>
-            <p className="text-[8px] font-bold uppercase text-gov-yellow/80 mt-0.5">
-              {isSuperAdmin ? 'Super Admin Master' : 
-               role === 'candidate' ? 'Candidato' :
-               role === 'general_coordination' ? 'Coordenação Geral' :
-               role === 'area_coordinator' ? 'Coordenador de Área' : 'Coordenador de Campo'}
-            </p>
+            <div className="mt-1 flex flex-col gap-0.5">
+              <span className="text-[8px] font-black uppercase text-gov-yellow">
+                {isSuperAdmin ? '⚡ Super Admin Master' : 
+                 role === 'candidate' ? '👑 Candidato' :
+                 role === 'general_coordination' ? '⭐ Coordenação Geral' :
+                 role === 'area_coordinator' ? '📍 Coordenador de Área' : '🚶 Coordenador de Campo'}
+              </span>
+              <span className="text-[7.5px] font-bold uppercase text-blue-200/60">
+                {isSuperAdmin ? 'Visão Global (Todas as Campanhas)' : 
+                 role === 'candidate' || role === 'general_coordination' ? 'Visão Total da Campanha' :
+                 role === 'area_coordinator' ? 'Visão da Minha Rede' : 'Visão da Minha Produção'}
+              </span>
+            </div>
           </div>
           <button
             onClick={onLogout}

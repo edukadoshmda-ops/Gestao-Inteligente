@@ -16,11 +16,12 @@ export const db = {
     if (client) {
       try {
         let query = client.from('members').select('*').order('createdAt', { ascending: false });
+        // FILTRAGEM ESTRETA: apenas membros da organização específica
         if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
-          query = query.or(`org_id.eq.${orgId},org_id.is.null`);
+          query = query.eq('org_id', orgId);
         }
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
           supabaseMembers = data as unknown as Member[];
         } else if (error) {
           console.warn("Aviso ao buscar membros no Supabase:", error);
@@ -33,11 +34,10 @@ export const db = {
     // Carregar dados locais (LocalStorage) para resiliência máxima
     let localData: Member[] = [];
     try {
-      if (orgId && orgId !== 'undefined') {
+      if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         const orgSpecific = localStorage.getItem(`@AppGestao:members_${orgId}`);
         if (orgSpecific) localData = JSON.parse(orgSpecific);
-      }
-      if (localData.length === 0) {
+      } else {
         const globalData = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (globalData) localData = JSON.parse(globalData);
       }
@@ -45,22 +45,16 @@ export const db = {
       console.warn("Erro ao ler dados locais:", e);
     }
 
-    // Se temos dados do Supabase, mesclamos com os dados locais sem duplicar IDs
-    if (supabaseMembers && supabaseMembers.length > 0) {
-      const existingIds = new Set(supabaseMembers.map(m => m.id));
-      const combined = [...supabaseMembers];
-      for (const lm of localData) {
-        if (lm && lm.id && !existingIds.has(lm.id)) {
-          combined.push(lm);
-        }
-      }
+    // Se temos dados do Supabase bem sucedidos, atualizamos o LocalStorage com a verdade do servidor
+    if (supabaseMembers !== null) {
       try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(combined));
-        if (orgId && orgId !== 'undefined') {
-          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(combined));
+        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(supabaseMembers));
+        } else {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(supabaseMembers));
         }
       } catch {}
-      return combined;
+      return supabaseMembers;
     }
 
     return localData;
@@ -83,7 +77,8 @@ export const db = {
     // Colunas seguras que existem na tabela members do Supabase
     const SUPABASE_COLS = new Set([
       'id', 'name', 'email', 'phone', 'age', 'voterId', 'voterSection',
-      'voterZone', 'gender', 'createdAt', 'org_id', 'network_id'
+      'voterZone', 'gender', 'createdAt', 'org_id', 'network_id',
+      'coordinatorId', 'birthDate', 'region', 'referral', 'mainInterest', 'supportLevel'
     ]);
 
     // Mapeia Member para apenas os campos que existem no Supabase
@@ -125,39 +120,64 @@ export const db = {
     if (client) {
       try {
         let query = client.from('coordinators').select('*').order('name');
-        if (orgId) {
+        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
           query = query.eq('org_id', orgId);
         }
         const { data, error } = await query;
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
           supabaseCoords = data as unknown as Coordinator[];
         }
       } catch {}
     }
 
-    if (supabaseCoords && supabaseCoords.length > 0) {
-      try {
-        localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(supabaseCoords));
-        if (orgId) {
-          localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(supabaseCoords));
-        }
-      } catch {}
-      return supabaseCoords;
-    }
-
     let localCoords: Coordinator[] = [];
     try {
-      if (orgId) {
+      if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         const orgSpecific = localStorage.getItem(`@AppGestao:coordinators_${orgId}`);
         if (orgSpecific) localCoords = JSON.parse(orgSpecific);
-      }
-      if (localCoords.length === 0) {
+      } else {
         const globalCoords = localStorage.getItem(COORD_STORAGE_KEY);
         if (globalCoords) localCoords = JSON.parse(globalCoords);
       }
     } catch {}
 
+    if (supabaseCoords !== null) {
+      try {
+        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+          localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(supabaseCoords));
+        } else {
+          localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(supabaseCoords));
+        }
+      } catch {}
+      return supabaseCoords;
+    }
+
     return localCoords;
+  },
+
+  async addCoordinator(coordinator: Omit<Coordinator, 'id' | 'createdAt'>): Promise<Coordinator | null> {
+    const client = getClient();
+    if (!client) return null;
+
+    try {
+      const newCoordinator: any = {
+        ...coordinator,
+        id: 'coord-' + Math.random().toString(36).substr(2, 9),
+        createdAt: new Date().toISOString()
+      };
+
+      const { data, error } = await client
+        .from('coordinators')
+        .insert([newCoordinator])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as unknown as Coordinator;
+    } catch (error) {
+      console.error('Erro ao adicionar coordenador:', error);
+      return null;
+    }
   },
 
   async saveCoordinators(coordinators: Coordinator[], orgId?: string): Promise<void> {

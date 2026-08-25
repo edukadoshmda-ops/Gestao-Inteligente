@@ -327,15 +327,15 @@ export default function App() {
         );
         if (found) {
           let coordRole = (found as any).role;
-          const isGeneralCoordinator = userEmail?.toLowerCase().includes('lukagustavo') || 
-                                      found.name?.toLowerCase().includes('lukas') || 
-                                      userEmail?.toLowerCase().includes('coordenacao') || 
-                                      !(found as any).network_id;
+          const isGeneralCoordinator = (found as any).role === 'general_coordination' ||
+                                      userEmail?.toLowerCase().includes('lukagustavo') || 
+                                      userEmail?.toLowerCase().includes('coordenacao') ||
+                                      userEmail?.toLowerCase() === 'llukasrodrigues21@gmail.com';
 
           if (isGeneralCoordinator) {
             coordRole = 'general_coordination';
           } else if (!coordRole) {
-            coordRole = 'coordinator';
+            coordRole = (found as any).network_id ? 'coordinator' : 'area_coordinator';
           }
 
           const coordProfile = {
@@ -470,13 +470,58 @@ export default function App() {
             window.dispatchEvent(new Event('logoUpdated'));
           }
         }
+
+        // Verificar se o usuário é coordenador na tabela de coordenadores
         let role = data.role;
-        const isGeneral = data.email?.toLowerCase().includes('lukagustavo') || 
-                          data.full_name?.toLowerCase().includes('lukas') || 
-                          data.email?.toLowerCase().includes('coordenacao');
-        if (isGeneral) {
-          role = 'general_coordination';
+        const coords = await db.getCoordinators(orgData?.id);
+        console.log('🔍 Buscando coordenadores para org:', orgData?.id);
+        console.log('🔍 Total de coordenadores encontrados:', coords.length);
+        console.log('🔍 Email do usuário:', data.email);
+        console.log('🔍 ID do usuário:', userId);
+        console.log('🔍 Todos os emails dos coordenadores:', coords.map(c => c.email).join(', '));
+
+        const foundCoord = coords.find(
+          c => (c.email && c.email.trim().toLowerCase() === data.email?.trim().toLowerCase()) || c.id === userId
+        );
+
+        console.log('🔍 Coordenador encontrado:', foundCoord);
+
+        if (foundCoord) {
+          // Usar o role da tabela de coordenadores
+          role = (foundCoord as any).role || 'coordinator';
+          console.log('✅ Usuário encontrado como coordenador:', foundCoord.name, 'role:', role);
+        } else {
+          const isGeneral = data.email?.toLowerCase().includes('lukagustavo') ||
+                            data.full_name?.toLowerCase().includes('lukas') ||
+                            data.email?.toLowerCase().includes('coordenacao') ||
+                            data.email?.toLowerCase() === 'llukasrodrigues21@gmail.com';
+          
+          if (isGeneral) {
+            role = 'general_coordination';
+            
+            // Adicionar automaticamente como coordenador geral se não existir
+            if (data.email?.toLowerCase() === 'llukasrodrigues21@gmail.com') {
+              console.log('🔍 Adicionando llukasrodrigues21@gmail.com como coordenador geral...');
+              await db.addCoordinator({
+                name: data.full_name || 'José Lucas',
+                email: data.email,
+                role: 'general_coordination',
+                org_id: orgData?.id,
+                neighborhood: null,
+                city: null,
+                voterId: null,
+                voterSection: null,
+                voterZone: null,
+                photo: null,
+                whatsapp: null,
+                network_id: null
+              });
+              console.log('✅ Coordenador geral adicionado com sucesso!');
+            }
+          }
+          console.log('⚠️ Usuário não encontrado como coordenador, usando role:', role);
         }
+
         const updatedProfile = { ...data, role, organization: orgData };
         setProfile(updatedProfile);
         setLoading(false);
@@ -487,10 +532,11 @@ export default function App() {
         const found = coords.find(
           c => (c.email && c.email.trim().toLowerCase() === userEmail?.trim().toLowerCase()) || c.id === userId
         );
-        const isGeneral = userEmail?.toLowerCase().includes('lukagustavo') || 
-                          userEmail?.toLowerCase().includes('coordenacao') || 
-                          (found && (found.name?.toLowerCase().includes('lukas') || !(found as any).network_id));
-        const role = isGeneral ? 'general_coordination' : (found ? ((found as any).role || 'coordinator') : 'coordinator');
+        const isGeneral = (found as any)?.role === 'general_coordination' ||
+                          userEmail?.toLowerCase().includes('lukagustavo') || 
+                          userEmail?.toLowerCase().includes('coordenacao') ||
+                          userEmail?.toLowerCase() === 'llukasrodrigues21@gmail.com';
+        const role = isGeneral ? 'general_coordination' : (found ? ((found as any).role || ((found as any).network_id ? 'coordinator' : 'area_coordinator')) : 'coordinator');
 
         const fallbackProfile = {
           id: found ? found.id : userId,

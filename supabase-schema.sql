@@ -182,9 +182,82 @@ DROP POLICY IF EXISTS "Acesso total aos avisos" ON public.announcements;
 DROP POLICY IF EXISTS "Logar auditoria" ON public.audit_logs;
 DROP POLICY IF EXISTS "Acesso público ao chat" ON public.messages;
 
--- CRIA NOVAS POLÍTICAS (Isoladas por Organização)
-DROP POLICY IF EXISTS "Isolamento de Membros" ON public.members;
-CREATE POLICY "Isolamento de Membros" ON public.members FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
+-- CRIA NOVAS POLÍTICAS (Isoladas por Organização e Coordenador)
+
+-- Política para Super Admin: vê tudo
+DROP POLICY IF EXISTS "Super Admin vê todos os membros" ON public.members;
+CREATE POLICY "Super Admin vê todos os membros" ON public.members FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role = 'super_admin'
+  )
+);
+
+-- Política para Candidato e Coordenação Geral: vê todos da organização
+DROP POLICY IF EXISTS "Candidato e Coordenação Geral veem todos da organização" ON public.members;
+CREATE POLICY "Candidato e Coordenação Geral veem todos da organização" ON public.members FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() 
+    AND role IN ('candidate', 'general_coordination')
+    AND organization_id = public.members.org_id
+  )
+);
+
+-- Política para Coordenador de Área: vê membros de sua rede
+DROP POLICY IF EXISTS "Coordenador de Área vê sua rede" ON public.members;
+CREATE POLICY "Coordenador de Área vê sua rede" ON public.members FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM public.coordinators c
+    WHERE c.id = (SELECT id FROM public.coordinators WHERE email = (SELECT email FROM public.profiles WHERE id = auth.uid()) LIMIT 1)
+    AND c.role = 'area_coordinator'
+    AND c.org_id = public.members.org_id
+    AND (
+      public.members."coordinatorId" = c.id
+      OR public.members."coordinatorId" IN (
+        SELECT id FROM public.coordinators WHERE network_id = c.id
+      )
+      OR public.members.network_id = c.id
+    )
+  )
+);
+
+-- Política para Coordenador de Campo: vê apenas seus membros
+DROP POLICY IF EXISTS "Coordenador de Campo vê seus membros" ON public.members;
+CREATE POLICY "Coordenador de Campo vê seus membros" ON public.members FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM public.coordinators c
+    WHERE c.id = public.members."coordinatorId"
+    AND c.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
+    AND c.role = 'coordinator'
+  )
+);
+
+-- Política de inserção: coordenadores podem inserir membros
+DROP POLICY IF EXISTS "Coordenadores podem inserir membros" ON public.members;
+CREATE POLICY "Coordenadores podem inserir membros" ON public.members FOR INSERT WITH CHECK (
+  org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
+);
+
+-- Política de atualização: coordenadores podem atualizar seus membros
+DROP POLICY IF EXISTS "Coordenadores podem atualizar seus membros" ON public.members;
+CREATE POLICY "Coordenadores podem atualizar seus membros" ON public.members FOR UPDATE USING (
+  EXISTS (
+    SELECT 1 FROM public.coordinators c
+    WHERE c.id = public.members."coordinatorId"
+    AND c.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
+  )
+);
+
+-- Política de deleção: coordenadores podem deletar seus membros
+DROP POLICY IF EXISTS "Coordenadores podem deletar seus membros" ON public.members;
+CREATE POLICY "Coordenadores podem deletar seus membros" ON public.members FOR DELETE USING (
+  EXISTS (
+    SELECT 1 FROM public.coordinators c
+    WHERE c.id = public.members."coordinatorId"
+    AND c.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
+  )
+);
 
 -- Permitir que formulários públicos de cadastro insiram novos membros/apoiadores
 DROP POLICY IF EXISTS "Cadastro público de membros" ON public.members;

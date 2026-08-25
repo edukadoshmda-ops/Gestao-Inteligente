@@ -91,6 +91,7 @@ export interface Coordinator {
   createdAt: string;
   org_id?: string;
   network_id?: string;
+  role?: 'general_coordination' | 'area_coordinator' | 'coordinator' | string;
 }
 
 export interface User {

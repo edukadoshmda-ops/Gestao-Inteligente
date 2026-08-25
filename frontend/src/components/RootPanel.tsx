@@ -211,6 +211,56 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
     }
   }
 
+  async function handleDeleteAll() {
+    if (orgs.length === 0) {
+      alert('Não há campanhas para excluir.');
+      return;
+    }
+
+    const confirmed = confirm(`⚠️ ATENÇÃO: Isso vai excluir TODAS as ${orgs.length} campanhas permanentemente!\n\nTem certeza absoluta?`);
+    if (!confirmed) return;
+
+    const doubleConfirmed = confirm('🚨 ÚLTIMA CHANCE: Esta ação não pode ser desfeita!\n\nDeseja continuar?');
+    if (!doubleConfirmed) return;
+
+    setIsProcessing(true);
+    try {
+      const clientToUse = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+      const cleanupTables = [
+        { table: 'profiles', column: 'organization_id' },
+        { table: 'members', column: 'org_id' },
+        { table: 'coordinators', column: 'org_id' },
+        { table: 'announcements', column: 'org_id' },
+        { table: 'messages', column: 'org_id' },
+        { table: 'audit_logs', column: 'org_id' },
+        { table: 'electoral_results', column: 'org_id' }
+      ];
+
+      // Excluir dados relacionados de todas as organizações
+      for (const item of cleanupTables) {
+        try {
+          await clientToUse.from(item.table).delete().in(item.column, orgs.map(o => o.id));
+        } catch (e) {}
+      }
+
+      // Excluir todas as organizações
+      await clientToUse
+        .from('organizations')
+        .delete()
+        .in('id', orgs.map(o => o.id));
+
+      setOrgs([]);
+      setStats({ total: 0, active: 0, revenue: 0 });
+      alert(`✅ ${orgs.length} campanhas excluídas com sucesso!`);
+    } catch (err: any) {
+      console.error('Erro ao excluir tudo:', err);
+      alert('❌ Erro ao excluir: ' + err.message);
+    } finally {
+      setIsProcessing(false);
+      fetchOrgs();
+    }
+  }
+
   async function handleCreateOrg(e: React.FormEvent) {
     e.preventDefault();
     if (!newOrgName.trim()) return;
@@ -302,9 +352,14 @@ export default function RootPanel({ onSignOut, onBackToApp }: RootPanelProps) {
               <Search className="w-5 h-5 text-gray-300 absolute left-4 top-1/2 -translate-y-1/2" />
               <input type="text" placeholder="Buscar por candidato ou ID..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-gray-50 border border-gray-100 p-4 pl-12 font-bold text-sm focus:border-gov-blue outline-none rounded-2xl" />
            </div>
-           <button onClick={() => setIsCreateModalOpen(true)} className="w-full md:w-auto px-8 py-4 bg-gov-blue text-white font-black uppercase text-xs tracking-widest hover:bg-blue-800 flex items-center justify-center gap-3">
-              <Plus className="w-5 h-5 text-gov-yellow" /> Novo Candidato
-           </button>
+           <div className="flex gap-3 w-full md:w-auto">
+              <button onClick={() => setIsCreateModalOpen(true)} className="flex-1 md:flex-none px-8 py-4 bg-gov-blue text-white font-black uppercase text-xs tracking-widest hover:bg-blue-800 flex items-center justify-center gap-3">
+                 <Plus className="w-5 h-5 text-gov-yellow" /> Novo Candidato
+              </button>
+              <button onClick={handleDeleteAll} disabled={isProcessing || orgs.length === 0} className="flex-1 md:flex-none px-8 py-4 bg-red-600 text-white font-black uppercase text-xs tracking-widest hover:bg-red-700 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed">
+                 <Trash2 className="w-5 h-5" /> Apagar Tudo
+              </button>
+           </div>
         </div>
 
         {/* Orgs Table */}

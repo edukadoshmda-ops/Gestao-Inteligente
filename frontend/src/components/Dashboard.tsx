@@ -84,8 +84,13 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const secondaryColor = organization?.theme_secondary || '#FFCC00';
 
   const loggedInCoordinator = useMemo(() => {
-    if (profile.role === 'coordinator') {
-      return coordinators.find(c => c.id === profile.id || c.email?.toLowerCase() === profile.id.toLowerCase());
+    if (profile.role === 'coordinator' || profile.role === 'area_coordinator') {
+      const pId = profile.id ? profile.id.replace(/^coord-/, '').toLowerCase() : '';
+      const pEmail = profile.email ? profile.email.toLowerCase().trim() : '';
+      return coordinators.find(c => 
+        (c.id && (c.id.toLowerCase() === pId || c.id.toLowerCase() === profile.id.toLowerCase())) || 
+        (c.email && pEmail && c.email.toLowerCase().trim() === pEmail)
+      );
     }
     return null;
   }, [coordinators, profile]);
@@ -222,46 +227,116 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     showToast('✅ Arquivo de agenda baixado! Abra-o para salvar os contatos.');
   };
 
+  // Helper para extrair todos os identificadores possíveis (ID, ID sem coord-, email)
+  const getUserIdentifierSet = useCallback((p: Profile, coord?: Coordinator | null): Set<string> => {
+    const set = new Set<string>();
+    if (p?.id) {
+      const raw = String(p.id).trim().toLowerCase();
+      set.add(raw);
+      set.add(raw.replace(/^coord-/, ''));
+    }
+    if (coord?.id) {
+      const raw = String(coord.id).trim().toLowerCase();
+      set.add(raw);
+      set.add(raw.replace(/^coord-/, ''));
+      set.add(`coord-${raw}`);
+    }
+    if (p?.email) {
+      set.add(p.email.trim().toLowerCase());
+    }
+    if (coord?.email) {
+      set.add(coord.email.trim().toLowerCase());
+    }
+    return set;
+  }, []);
+
+  const matchIdentifier = useCallback((val: string | null | undefined, targetSet: Set<string>): boolean => {
+    if (!val) return false;
+    const clean = String(val).trim().toLowerCase();
+    const cleanWithoutPrefix = clean.replace(/^coord-/, '');
+    return targetSet.has(clean) || targetSet.has(cleanWithoutPrefix) || targetSet.has(`coord-${cleanWithoutPrefix}`);
+  }, []);
+
   const loadDashboardData = useCallback(() => {
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
 
-    // Buscar coordenadores e membros com persistência resiliente e filtro de hierarquia de rede
+    console.log('🔍 loadDashboardData - Profile:', profile?.full_name, 'role:', profile?.role, 'org:', currentOrgId);
+
+    // Buscar coordenadores e membros com persistência resiliente e filtro estrito por organização e cargo
     Promise.all([
       db.getCoordinators(currentOrgId),
       db.getMembers(currentOrgId)
     ]).then(([allCoordinators, allMembers]) => {
-      if (networkFilter?.isRestricted) {
-        if (networkFilter.isArea) {
-          // Coordenador de Área: vê seus coordenadores de campo subordinados e os eleitores vinculados à sua rede (e registros da campanha)
-          const mySubordinates = allCoordinators.filter(c => c.network_id === profile.id || c.id === profile.id);
-          const subordinateIds = new Set(mySubordinates.map(c => c.id));
-          subordinateIds.add(profile.id);
+      console.log('🔍 Total carregado da org:', { coordinators: allCoordinators.length, members: allMembers.length });
 
-          setCoordinators(mySubordinates);
-          const networkMembers = allMembers.filter(m => 
-            m.network_id === profile.id || 
-            (m.coordinatorId && subordinateIds.has(m.coordinatorId)) ||
-            !m.coordinatorId // Apoiadores cadastrados pelo link geral da campanha
-          );
-          setMembers(networkMembers.length > 0 ? networkMembers : allMembers);
-        } else if (networkFilter.isField) {
-          // Coordenador de Campo: sem lista de outros coordenadores, apenas seus eleitores cadastrados
-          setCoordinators([]);
-          const fieldMembers = allMembers.filter(m => 
-            m.coordinatorId === profile.id || 
-            m.network_id === profile.id
-          );
-          setMembers(fieldMembers);
-        }
-      } else {
-        // Candidato, Coordenador Geral e Super Admin têm VISÃO TOTAL DA CAMPANHA
+      // 1. Super Admin: Visão irrestrita total
+      if (isSuperAdmin) {
         setCoordinators(allCoordinators);
         setMembers(allMembers);
+        return;
       }
+
+      // 2. Candidato e Coordenação Geral: Visão total de TODA a campanha
+      if (profile.role === 'candidate' || profile.role === 'general_coordination') {
+        setCoordinators(allCoordinators);
+        setMembers(allMembers);
+        return;
+      }
+
+      // 3. Coordenador de Área: Vê apenas sua rede (ele mesmo + seus coordenadores de campo + eleitores da sua rede)
+      if (profile.role === 'area_coordinator') {
+        const myIds = getUserIdentifierSet(profile, loggedInCoordinator);
+
+        // Coordenadores subordinados da sua rede
+        const mySubordinates = allCoordinators.filter(c => {
+          if (!c) return false;
+          return matchIdentifier(c.id, myIds) || matchIdentifier(c.network_id, myIds) || (c.email && myIds.has(c.email.toLowerCase().trim()));
+        });
+
+        // Todos os IDs vinculados à rede de área
+        const networkIds = new Set<string>(myIds);
+        mySubordinates.forEach(c => {
+          if (c.id) {
+            const raw = String(c.id).trim().toLowerCase();
+            networkIds.add(raw);
+            networkIds.add(raw.replace(/^coord-/, ''));
+          }
+          if (c.email) networkIds.add(c.email.trim().toLowerCase());
+        });
+
+        const networkMembers = allMembers.filter(m => {
+          if (!m) return false;
+          return matchIdentifier(m.coordinatorId, networkIds) || matchIdentifier(m.network_id, networkIds);
+        });
+
+        console.log(`📍 Coordenador de Área: ${mySubordinates.length} coordenadores e ${networkMembers.length} eleitores na rede.`);
+        setCoordinators(mySubordinates);
+        setMembers(networkMembers);
+        return;
+      }
+
+      // 4. Coordenador de Campo / Liderança: Vê APENAS seus próprios eleitores cadastrados
+      if (profile.role === 'coordinator') {
+        const myIds = getUserIdentifierSet(profile, loggedInCoordinator);
+
+        const fieldMembers = allMembers.filter(m => {
+          if (!m) return false;
+          return matchIdentifier(m.coordinatorId, myIds) || matchIdentifier(m.network_id, myIds);
+        });
+
+        console.log(`🚶 Coordenador de Campo: 0 coordenadores externos e ${fieldMembers.length} eleitores próprios.`);
+        setCoordinators([]);
+        setMembers(fieldMembers);
+        return;
+      }
+
+      // Fallback padrão
+      setCoordinators(allCoordinators);
+      setMembers(allMembers);
     }).catch(err => {
       console.warn("Aviso ao carregar dados do dashboard:", err);
     });
-  }, [organization?.id, profile?.organization_id, profile?.org_id, profile.id, networkFilter]);
+  }, [organization?.id, profile?.organization_id, profile?.org_id, profile?.id, profile?.role, profile?.email, loggedInCoordinator, isSuperAdmin, getUserIdentifierSet, matchIdentifier]);
 
   useEffect(() => {
     loadDashboardData();
@@ -359,12 +434,34 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
   const handleAddMember = (memberData: Omit<Member, 'id' | 'createdAt'>) => {
     const finalMemberData = { ...memberData };
+    const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+    const myCoordId = loggedInCoordinator?.id || profile.id?.replace(/^coord-/, '') || profile.id;
+    if (profile.role === 'coordinator') {
+      finalMemberData.coordinatorId = myCoordId;
+      finalMemberData.network_id = loggedInCoordinator?.network_id || myCoordId;
+    } else if (profile.role === 'area_coordinator') {
+      if (!finalMemberData.coordinatorId) {
+        finalMemberData.coordinatorId = myCoordId;
+      }
+      finalMemberData.network_id = myCoordId;
+    } else {
+      // Para admin / candidato / geral: alinhar o network_id com o coordenador escolhido no select
+      if (finalMemberData.coordinatorId) {
+        const selectedCoord = coordinators.find(c => {
+          const cid = String(c.id).trim().toLowerCase();
+          const target = String(finalMemberData.coordinatorId).trim().toLowerCase();
+          return cid === target || cid.replace(/^coord-/, '') === target || c.email?.trim().toLowerCase() === target;
+        });
+        if (selectedCoord) {
+          finalMemberData.network_id = selectedCoord.network_id || selectedCoord.id;
+        }
+      } else {
+        finalMemberData.network_id = undefined;
+      }
+    }
 
-    // Prioriza o network_id do formulário (vem do MemberForm), se não tiver usa o networkFilter
-    let memberNetworkId = (memberData as any).network_id || (networkFilter ? profile.id : undefined);
-
-    if (!isSuperAdmin && loggedInCoordinator) {
-      finalMemberData.coordinatorId = loggedInCoordinator.id;
+    if (!finalMemberData.org_id && currentOrgId) {
+      finalMemberData.org_id = currentOrgId;
     }
 
     // Validação de Duplicidade (Regra de Negócio Profissional)
@@ -380,12 +477,6 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       }
     }
 
-    // Atribuição automática de rede e coordenador para novos eleitores
-    if (profile.role === 'coordinator' || profile.role === 'area_coordinator') {
-      if (!memberNetworkId) memberNetworkId = profile.id;
-      if (!finalMemberData.coordinatorId) finalMemberData.coordinatorId = profile.id;
-    }
-
     if (selectedMember) {
       const updatedMembers = members.map(m =>
         m.id === selectedMember.id ? { ...m, ...finalMemberData } : m
@@ -399,8 +490,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         ...finalMemberData,
         id: crypto.randomUUID().split('-')[0],
         createdAt: new Date().toISOString(),
-        org_id: organization?.id,
-        network_id: memberNetworkId
+        org_id: currentOrgId,
+        network_id: finalMemberData.network_id || (profile.role === 'area_coordinator' ? myCoordId : undefined)
       };
       saveMembers([newMember, ...members]);
       showToast('Registro cadastrado com sucesso!');
@@ -412,6 +503,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
     const coordEmail = coordData.email?.trim().toLowerCase();
     const coordPass = (coordData as any).password;
+    const myCoordId = loggedInCoordinator?.id || profile.id?.replace(/^coord-/, '') || profile.id;
 
     if (coordEmail && coordPass) {
       localStorage.setItem(`@AppGestao:userPass_${coordEmail}`, coordPass);
@@ -432,12 +524,13 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         id: crypto.randomUUID().split('-')[0],
         createdAt: new Date().toISOString(),
         org_id: currentOrgId,
-        network_id: networkFilter ? profile.id : undefined // Adiciona network_id se for coordenador criando sub-coordenador
+        network_id: profile.role === 'area_coordinator' ? myCoordId : (coordData.network_id || undefined),
+        role: profile.role === 'area_coordinator' ? 'coordinator' : (coordData.role || (coordData.network_id ? 'coordinator' : 'area_coordinator'))
       };
       const updated = [newCoord, ...coordinators];
       setCoordinators(updated);
       await db.saveCoordinators(updated, currentOrgId);
-      showToast('Coordenador cadastrado!');
+      showToast('Coordenador cadastrado com sucesso!');
     }
     setIsAddingCoordinator(false);
   };
@@ -475,10 +568,14 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     
     try {
       setMembers([]);
+      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      if (currentOrgId) {
+        localStorage.removeItem(`@AppGestao:members_${currentOrgId}`);
+      }
       localStorage.removeItem('forja_members_data');
       
-      if (supabase) {
-        const { error } = await supabase.from('members').delete().neq('id', 'x');
+      if (supabase && currentOrgId) {
+        const { error } = await supabase.from('members').delete().eq('org_id', currentOrgId);
         if (error) throw error;
       }
       
@@ -494,10 +591,11 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     
     try {
       setCoordinators([]);
-      await db.saveCoordinators([]);
+      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      await db.saveCoordinators([], currentOrgId);
       
-      if (supabase) {
-        const { error } = await supabase.from('coordinators').delete().neq('id', 'x');
+      if (supabase && currentOrgId) {
+        const { error } = await supabase.from('coordinators').delete().eq('org_id', currentOrgId);
         if (error) throw error;
       }
       
@@ -508,25 +606,32 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
   };
 
-
-
   const filteredMembers = useMemo(() => {
     let baseMembers = members;
 
-    // RESTRIÇÃO DE CARGO: Coordenador só vê os seus membros
-    if (!isCampaignAdmin && profile.role === 'coordinator') {
-      baseMembers = members.filter(m => m.coordinatorId === profile.id);
+    // Filtro por Coordenador selecionado (se houver drill-down ativo)
+    if (activeCoordinator) {
+      const coordIds = new Set<string>();
+      if (activeCoordinator.id) {
+        const raw = String(activeCoordinator.id).trim().toLowerCase();
+        coordIds.add(raw);
+        coordIds.add(raw.replace(/^coord-/, ''));
+      }
+      if (activeCoordinator.email) coordIds.add(activeCoordinator.email.trim().toLowerCase());
+
+      baseMembers = baseMembers.filter(m => matchIdentifier(m.coordinatorId, coordIds) || matchIdentifier(m.network_id, coordIds));
     }
 
     if (!debouncedSearch.trim()) return baseMembers;
 
     const term = debouncedSearch.toLowerCase().trim();
     return baseMembers.filter(m =>
-      m.name.toLowerCase().includes(term) ||
-      m.phone.includes(term) ||
-      (m.voterId && m.voterId.includes(term))
+      m.name?.toLowerCase().includes(term) ||
+      m.phone?.includes(term) ||
+      (m.voterId && m.voterId.includes(term)) ||
+      (m.neighborhood && m.neighborhood.toLowerCase().includes(term))
     );
-  }, [members, debouncedSearch, isCampaignAdmin, profile.id]);
+  }, [members, debouncedSearch, activeCoordinator, matchIdentifier]);
 
 
   if (isOverdue && !isSuperAdmin) {
@@ -561,7 +666,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     >
       <Sidebar 
         activeTab={activeTab} 
-        onTabChange={setActiveTab} 
+        onTabChange={(tab) => {
+          if (tab === 'list') {
+            setActiveCoordinator(null);
+          }
+          setActiveTab(tab);
+        }} 
         onLogout={onLogout} 
         username={username} 
         candidateName={organization?.candidate_name}
@@ -844,6 +954,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                     </div>
                     <CoordinatorList
                       coordinators={coordinators}
+                      members={members}
                       onEdit={(c) => { setSelectedCoordinator(c); setIsAddingCoordinator(true); }}
                       onDelete={permissions.canDeleteCoordinators ? handleDeleteCoordinator : undefined}
                       onSelect={(c) => {
@@ -857,25 +968,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                     {activeCoordinator && (
                       <div className="bg-gov-blue p-4 text-white flex justify-between items-center border-l-8 border-gov-yellow rounded-2xl">
                         <div className="flex items-center gap-4">
-                          <button 
-                            onClick={() => setActiveCoordinator(null)}
-                            className="p-2 hover:bg-white/10 rounded-full transition-all group"
-                            title="Voltar para lista geral"
-                          >
-                            <ArrowLeft className="w-6 h-6 text-gov-yellow group-hover:scale-125 transition-transform" />
-                          </button>
                           <ShieldCheck className="w-6 h-6 text-gov-yellow hidden sm:block" />
                           <div>
                             <h4 className="font-black uppercase text-xs">Relatório Individual: {activeCoordinator.name}</h4>
                             <p className="text-[10px] text-blue-200 uppercase font-bold tracking-widest">Mostrando apenas eleitores cadastrados por este coordenador</p>
                           </div>
                         </div>
-                        <button
-                          onClick={() => setActiveCoordinator(null)}
-                          className="bg-white/10 hover:bg-white/20 px-3 py-1 text-[10px] font-black uppercase rounded-2xl"
-                        >
-                          Ver Tudo
-                        </button>
                       </div>
                     )}
                     <MemberList
@@ -930,8 +1028,14 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       {/* Modal de Compartilhamento WhatsApp de Eleitores */}
       <AnimatePresence>
         {showShareModal && (() => {
-          const coordParam = (loggedInCoordinator || profile.role === 'coordinator' || profile.role === 'area_coordinator') ? `&coord=${profile.id}` : '';
-          const publicVoterUrl = `${window.location.origin}?public=true&org=${effectiveOrgId}${coordParam}`;
+          const myCoordId = loggedInCoordinator?.id || profile.id?.replace(/^coord-/, '') || profile.id;
+          let coordParams = '';
+          if (profile.role === 'coordinator') {
+            coordParams = `&coord=${myCoordId}&network=${loggedInCoordinator?.network_id || myCoordId}`;
+          } else if (profile.role === 'area_coordinator') {
+            coordParams = `&coord=${myCoordId}&network=${myCoordId}`;
+          }
+          const publicVoterUrl = `${window.location.origin}?public=true&org=${effectiveOrgId}${coordParams}`;
           const whatsappShareMsg = `Olá! Faça parte do nosso time de apoiadores para a campanha ${organization?.candidate_name || 'Gestão Inteligente 2026'}. Cadastre-se pelo link oficial:\n\n${publicVoterUrl}`;
 
           return (
@@ -990,65 +1094,72 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
       {/* Modal de Compartilhamento de Link de Coordenadores */}
       <AnimatePresence>
-        {showCoordShareModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gov-blue/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white p-8 border-4 border-gov-yellow max-w-md w-full text-center shadow-2xl relative rounded-3xl"
-            >
-              <button
-                onClick={() => setShowCoordShareModal(false)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gov-blue p-1 rounded-full hover:bg-gray-100 transition-all"
+        {showCoordShareModal && (() => {
+          const myCoordId = loggedInCoordinator?.id || profile.id?.replace(/^coord-/, '') || profile.id;
+          let coordRegisterParams = '';
+          if (profile.role === 'area_coordinator') {
+            coordRegisterParams = `&network=${myCoordId}`;
+          }
+          const publicCoordUrl = `${window.location.origin}?coord_register=true&org=${effectiveOrgId}${coordRegisterParams}`;
+
+          return (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gov-blue/60 backdrop-blur-sm">
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white p-8 border-4 border-gov-yellow max-w-md w-full text-center shadow-2xl relative rounded-3xl"
               >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="w-16 h-16 bg-yellow-100 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner">
-                <Users className="w-8 h-8 text-gov-blue" />
-              </div>
-              <h3 className="text-xl font-black text-gov-blue uppercase mb-2">Link de Cadastro de Coordenador</h3>
-              <p className="text-[11px] text-gray-500 mb-5 font-bold uppercase tracking-wide leading-relaxed">
-                Envie este link para suas lideranças para que elas façam seu próprio cadastro de coordenador na campanha.
-              </p>
-
-              {/* Link Box */}
-              <div className="bg-gray-50 p-4 border-2 border-dashed border-gov-yellow/60 mb-5 break-all text-[11px] font-mono font-bold text-gov-blue select-all rounded-2xl">
-                {`${window.location.origin}?coord_register=true&org=${effectiveOrgId}${networkFilter ? `&network=${profile.id}` : ''}`}
-              </div>
-
-              <div className="space-y-3">
                 <button
-                  type="button"
-                  onClick={() => {
-                    const coordLink = `${window.location.origin}?coord_register=true&org=${effectiveOrgId}${networkFilter ? `&network=${profile.id}` : ''}`;
-                    navigator.clipboard.writeText(coordLink);
-                    setCopyCoordSuccess(true);
-                    setTimeout(() => setCopyCoordSuccess(false), 2500);
-                  }}
-                  className={`w-full py-3.5 ${copyCoordSuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-md rounded-xl`}
+                  onClick={() => setShowCoordShareModal(false)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-gov-blue p-1 rounded-full hover:bg-gray-100 transition-all"
                 >
-                  {copyCoordSuccess ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-gov-yellow" />}
-                  {copyCoordSuccess ? 'Link Copiado com Sucesso!' : 'Copiar Link do Formulário'}
+                  <X className="w-5 h-5" />
                 </button>
+                <div className="w-16 h-16 bg-yellow-100 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner">
+                  <Users className="w-8 h-8 text-gov-blue" />
+                </div>
+                <h3 className="text-xl font-black text-gov-blue uppercase mb-2">Link de Cadastro de Coordenador</h3>
+                <p className="text-[11px] text-gray-500 mb-5 font-bold uppercase tracking-wide leading-relaxed">
+                  Envie este link para suas lideranças para que elas façam seu próprio cadastro de coordenador na campanha.
+                </p>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    const coordLink = `${window.location.origin}?coord_register=true&org=${effectiveOrgId}${networkFilter ? `&network=${profile.id}` : ''}`;
-                    const msg = `Olá! Faça seu cadastro como Coordenador Oficial da campanha ${effectiveCandidateName}:\n\n🔗 ${coordLink}\n\nApós o cadastro, você terá acesso imediato ao seu painel!`;
-                    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-                    window.open(waUrl, '_blank');
-                  }}
-                  className="w-full py-3.5 bg-green-600 text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-md rounded-xl"
-                >
-                  <Smartphone className="w-4 h-4 text-green-200" />
-                  Enviar Convite no WhatsApp
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
+                {/* Link Box */}
+                <div className="bg-gray-50 p-4 border-2 border-dashed border-gov-yellow/60 mb-5 break-all text-[11px] font-mono font-bold text-gov-blue select-all rounded-2xl">
+                  {publicCoordUrl}
+                </div>
+
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(publicCoordUrl);
+                      setCopyCoordSuccess(true);
+                      setTimeout(() => setCopyCoordSuccess(false), 2500);
+                    }}
+                    className={`w-full py-3.5 ${copyCoordSuccess ? 'bg-green-600' : 'bg-gov-blue'} text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-md rounded-xl`}
+                  >
+                    {copyCoordSuccess ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-gov-yellow" />}
+                    {copyCoordSuccess ? 'Link Copiado com Sucesso!' : 'Copiar Link do Formulário'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = `Olá! Faça seu cadastro como Coordenador Oficial da campanha ${effectiveCandidateName}:\n\n🔗 ${publicCoordUrl}\n\nApós o cadastro, você terá acesso imediato ao seu painel!`;
+                      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+                      window.open(waUrl, '_blank');
+                    }}
+                    className="w-full py-3.5 bg-green-600 text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-md rounded-xl"
+                  >
+                    <Smartphone className="w-4 h-4 text-green-200" />
+                    Enviar Convite no WhatsApp
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Modal de Composição de Mensagem em Massa */}
