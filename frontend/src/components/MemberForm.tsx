@@ -242,7 +242,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
       if (finalTranscript.trim()) {
         setIsMagicProcessing(true);
         try {
-          const apiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
+          const apiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY;
           if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
             alert("A Chave da API do Gemini não está configurada para processar a IA.");
             return;
@@ -356,7 +356,7 @@ export default function MemberForm({ onSave, onCancel, initialData, coordinators
 
       // ETAPA 2: Gemini Vision AI (SOMENTE se usuário configurou sua própria chave válida)
       const userApiKey = geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY;
-      const isValidKey = userApiKey && userApiKey.length > 20 && !userApiKey.includes('MY_GEMINI') && !userApiKey.includes('AIzaSyCesNHy');
+      const isValidKey = userApiKey && userApiKey.length > 20 && !userApiKey.includes('MY_GEMINI');
 
       if (isValidKey) {
         setScanFeedback('IA analisando documento...');

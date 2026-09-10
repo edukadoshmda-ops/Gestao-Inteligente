@@ -211,7 +211,7 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
       });
 
       let extractedData: any = null;
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY || 'AIzaSyCesNHyiM3GEM7eGzCAhQiY3T3zOxYZqy4';
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY;
 
       if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
         setScanFeedback('IA analisando dados do eleitor...');

@@ -678,7 +678,7 @@ export default function Settings({ username, organization, profile }: SettingsPr
                   type={showGeminiKey ? 'text' : 'password'}
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
-                  placeholder="Cole aqui sua chave (ex: AIzaSy... ou AQ.Ab8R...)"
+                  placeholder="Cole aqui sua chave da API do Gemini"
                   className="w-full pl-10 pr-20 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-gov-yellow outline-none font-mono text-sm"
                 />
                 <div className="absolute right-3 flex items-center gap-1">
