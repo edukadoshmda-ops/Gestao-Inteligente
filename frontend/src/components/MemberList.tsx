@@ -1,6 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Member, Coordinator } from '../types';
-import { User, Trash2, Edit3, MessageCircle, ShieldCheck } from 'lucide-react';
+import { User, Trash2, Edit3, MessageCircle, ShieldCheck, CalendarDays, ArrowDownAZ, ShieldCheck as ShieldIcon } from 'lucide-react';
+
+type SortMode = 'date' | 'name' | 'coordinator';
 
 interface MemberListProps {
   members: Member[];
@@ -54,7 +56,30 @@ export default function MemberList({
   const [startY, setStartY] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
+  const [sortMode, setSortMode] = useState<SortMode>('date');
   const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const sortedMembers = useMemo(() => {
+    const copy = [...members];
+    if (sortMode === 'date') {
+      return copy.sort((a, b) => {
+        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return db - da;
+      });
+    }
+    if (sortMode === 'name') {
+      return copy.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+    }
+    // coordinator first, then alphabetical
+    return copy.sort((a, b) => {
+      const ca = Boolean(a.isCoordinator) ? 0 : 1;
+      const cb = Boolean(b.isCoordinator) ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+      return (a.name || '').localeCompare(b.name || '', 'pt-BR');
+    });
+  }, [members, sortMode]);
+
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!tableContainerRef.current) return;
@@ -99,7 +124,35 @@ export default function MemberList({
 
   return (
     <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-none">
+      {/* ── Sort Controls ─────────────────────────────────────────────── */}
+      {!isCoordinatorView && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+          <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 mr-1">Ordenar:</span>
+          {(
+            [
+              { mode: 'date' as SortMode, label: 'Data', icon: <CalendarDays className="w-3 h-3" /> },
+              { mode: 'name' as SortMode, label: 'A–Z', icon: <ArrowDownAZ className="w-3 h-3" /> },
+              { mode: 'coordinator' as SortMode, label: 'Coordenadores', icon: <ShieldIcon className="w-3 h-3" /> },
+            ] as { mode: SortMode; label: string; icon: React.ReactNode }[]
+          ).map(({ mode, label, icon }) => (
+            <button
+              key={mode}
+              onClick={() => setSortMode(mode)}
+              className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-black uppercase tracking-wide rounded-xl border transition-all ${
+                sortMode === mode
+                  ? 'bg-gov-blue text-white border-gov-blue shadow-sm'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gov-blue hover:text-gov-blue'
+              }`}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div 
+
         ref={tableContainerRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -122,7 +175,7 @@ export default function MemberList({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {members.map((member, idx) => {
+            {sortedMembers.map((member, idx) => {
               const isCoordinatorMember = !isCoordinatorView && Boolean(member.isCoordinator);
 
               return (

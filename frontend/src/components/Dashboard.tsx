@@ -609,57 +609,79 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
   };
 
-  // Helper para verificar se uma pessoa É de fato um coordenador (por ID, email, fone ou nome)
-  const isPersonCoordinator = useCallback((person: { id?: string; email?: string; phone?: string; name?: string; isCoordinator?: boolean }, coords: Coordinator[]): boolean => {
-    if (person.isCoordinator) return true;
-    if (!coords || coords.length === 0) return false;
+  // Helper preciso para verificar se um membro cadastrado corresponde a um coordenador específico
+  const isMemberMatchingCoordinator = useCallback((m: { id?: string; email?: string; phone?: string; name?: string; voterId?: string; coordinatorId?: string }, c: Coordinator): boolean => {
+    if (!m || !c) return false;
+    const mId = String(m.id || '').toLowerCase().replace(/^coord-/, '').trim();
+    const cId = String(c.id || '').toLowerCase().replace(/^coord-/, '').trim();
+    if (mId && cId && mId === cId) return true;
 
-    const pId = String(person.id || '').toLowerCase().replace(/^coord-/, '').trim();
-    const pEmail = person.email ? person.email.toLowerCase().trim() : '';
-    const pPhone = person.phone ? person.phone.replace(/\D/g, '') : '';
-    const pName = person.name ? person.name.toLowerCase().trim() : '';
+    // Título de eleitor (se ambos tiverem preenchido)
+    const mVoter = m.voterId ? String(m.voterId).trim() : '';
+    const cVoter = c.voterId ? String(c.voterId).trim() : '';
+    if (mVoter && cVoter && mVoter.length >= 5 && mVoter === cVoter) return true;
 
-    return coords.some(c => {
-      const cId = String(c.id || '').toLowerCase().replace(/^coord-/, '').trim();
-      const cEmail = c.email ? c.email.toLowerCase().trim() : '';
-      const cPhone = (c.whatsapp || (c as any).phone) ? (c.whatsapp || (c as any).phone).replace(/\D/g, '') : '';
-      const cName = c.name ? c.name.toLowerCase().trim() : '';
+    // Se o membro tiver coordinatorId apontando para este coord e nome idêntico ou similar
+    const mName = m.name ? m.name.toLowerCase().trim() : '';
+    const cName = c.name ? c.name.toLowerCase().trim() : '';
+    if (m.coordinatorId && (m.coordinatorId === c.id || m.coordinatorId === cId)) {
+      if (mName && cName && (mName.includes(cName) || cName.includes(mName) || mName === cName)) return true;
+    }
 
-      if (pId && cId && pId === cId) return true;
-      if (pEmail && cEmail && pEmail === cEmail) return true;
-      if (pPhone && cPhone && pPhone.length >= 8 && pPhone === cPhone) return true;
-      if (pName && cName && pName.length >= 4 && pName === cName) return true;
-      return false;
-    });
+    // Telefone (com 10 ou 11 dígitos, ignorando máscara)
+    const mPhone = m.phone ? m.phone.replace(/\D/g, '') : '';
+    const cPhone = (c.whatsapp || (c as any).phone) ? (c.whatsapp || (c as any).phone).replace(/\D/g, '') : '';
+    if (mPhone && cPhone && mPhone.length >= 10 && (mPhone === cPhone || mPhone.endsWith(cPhone) || cPhone.endsWith(mPhone))) return true;
+
+    // E-mail válido e não genérico
+    const mEmail = m.email ? m.email.toLowerCase().trim() : '';
+    const cEmail = c.email ? c.email.toLowerCase().trim() : '';
+    const isGenericEmail = (email: string) => /^(maria123|teste|admin|contato|eleitor|coord)/.test(email) || email === 'maria123@gmail.com';
+    if (mEmail && cEmail && !isGenericEmail(mEmail) && !isGenericEmail(cEmail) && mEmail === cEmail) return true;
+
+    // Nome completo exato (com mais de uma palavra)
+    if (mName && cName && mName === cName && mName.includes(' ')) return true;
+
+    return false;
   }, []);
 
   // Relação Geral Unificada de todas as pessoas cadastradas na Campanha (Coordenadores + Eleitores)
   // Para Super Admin, Candidato e Coordenação Geral:
-  // - Coordenadores legítimos identificados em VERDE
+  // - TODOS os Coordenadores legítimos identificados em VERDE (exatamente igual ao total da campanha, ex: 134)
   // - Eleitores legítimos identificados em PRETO
   const allCampaignPeople = useMemo(() => {
     if (isFieldCoordinator) {
       return members.map(m => ({ ...m, isCoordinator: false }));
     }
 
-    // 1. Marca se o membro já cadastrado é de fato um coordenador ou eleitor comum
+    // Rastrear quais coordenadores foram encontrados e vinculados a registros de membros existentes
+    const matchedCoordIds = new Set<string>();
+
+    // 1. Marca os membros que correspondem a coordenadores legítimos (1 para 1)
     const list: Member[] = members.map(m => {
-      const isC = isPersonCoordinator(m, coordinators);
+      const foundCoord = coordinators.find(c => !matchedCoordIds.has(c.id) && isMemberMatchingCoordinator(m, c));
+      if (foundCoord) {
+        matchedCoordIds.add(foundCoord.id);
+        return {
+          ...m,
+          isCoordinator: true,
+          coordinatorRole: foundCoord.role || 'coordinator'
+        };
+      }
       return {
         ...m,
-        isCoordinator: isC
+        isCoordinator: false
       };
     });
 
-    // 2. Mescla todos os coordenadores cadastrados na campanha que ainda não constem na lista
+    // 2. Mescla TODOS os coordenadores que ainda não possuem linha em members
     coordinators.forEach(c => {
-      const alreadyInList = list.some(m => isPersonCoordinator(m, [c]));
-      if (!alreadyInList) {
+      if (!matchedCoordIds.has(c.id)) {
         list.push({
           id: c.id.startsWith('coord-') ? c.id : `coord-${c.id}`,
           name: c.name,
           email: c.email || '',
-          phone: c.whatsapp || '',
+          phone: c.whatsapp || (c as any).phone || '',
           voterId: c.voterId || '',
           voterSection: c.voterSection || '',
           voterZone: c.voterZone || '',
@@ -677,7 +699,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     });
 
     return list;
-  }, [members, coordinators, isFieldCoordinator, isPersonCoordinator]);
+  }, [members, coordinators, isFieldCoordinator, isMemberMatchingCoordinator]);
 
   const filteredMembers = useMemo(() => {
     // Se for Coordenador de Campo, vê APENAS seus próprios eleitores cadastrados

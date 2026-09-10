@@ -1123,12 +1123,6 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
                 <p className="text-[9px] font-black text-gray-400 uppercase">Total de Pontos</p>
                 <p className="text-xl font-black text-gov-blue">{members.length * 10} XP</p>
               </div>
-              <PDFButton
-                containerRef={rankingRef}
-                filename={`placar-lideres-${Date.now()}.pdf`}
-                title="Placar de Líderes — Ranking de Coordenadores"
-                subtitle={`Total de ${coordinators.length} coordenadores | ${members.length} apoiadores cadastrados`}
-              />
             </div>
           </div>
 
