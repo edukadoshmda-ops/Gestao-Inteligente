@@ -609,27 +609,53 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
   };
 
+  // Helper para verificar se uma pessoa É de fato um coordenador (por ID, email, fone ou nome)
+  const isPersonCoordinator = useCallback((person: { id?: string; email?: string; phone?: string; name?: string; isCoordinator?: boolean }, coords: Coordinator[]): boolean => {
+    if (person.isCoordinator) return true;
+    if (!coords || coords.length === 0) return false;
+
+    const pId = String(person.id || '').toLowerCase().replace(/^coord-/, '').trim();
+    const pEmail = person.email ? person.email.toLowerCase().trim() : '';
+    const pPhone = person.phone ? person.phone.replace(/\D/g, '') : '';
+    const pName = person.name ? person.name.toLowerCase().trim() : '';
+
+    return coords.some(c => {
+      const cId = String(c.id || '').toLowerCase().replace(/^coord-/, '').trim();
+      const cEmail = c.email ? c.email.toLowerCase().trim() : '';
+      const cPhone = (c.whatsapp || (c as any).phone) ? (c.whatsapp || (c as any).phone).replace(/\D/g, '') : '';
+      const cName = c.name ? c.name.toLowerCase().trim() : '';
+
+      if (pId && cId && pId === cId) return true;
+      if (pEmail && cEmail && pEmail === cEmail) return true;
+      if (pPhone && cPhone && pPhone.length >= 8 && pPhone === cPhone) return true;
+      if (pName && cName && pName.length >= 4 && pName === cName) return true;
+      return false;
+    });
+  }, []);
+
   // Relação Geral Unificada de todas as pessoas cadastradas na Campanha (Coordenadores + Eleitores)
-  // Coordenadores de campo NUNCA veem a relação geral da campanha, apenas seus próprios eleitores
+  // Para Super Admin, Candidato e Coordenação Geral:
+  // - Coordenadores legítimos identificados em VERDE
+  // - Eleitores legítimos identificados em PRETO
   const allCampaignPeople = useMemo(() => {
     if (isFieldCoordinator) {
-      return members;
+      return members.map(m => ({ ...m, isCoordinator: false }));
     }
 
-    // 1. Marca se o membro já cadastrado também é um coordenador
+    // 1. Marca se o membro já cadastrado é de fato um coordenador ou eleitor comum
     const list: Member[] = members.map(m => {
-      const isC = coordinators.some(c => matchMemberToCoordinator(m, c)) || !!m.isCoordinator;
+      const isC = isPersonCoordinator(m, coordinators);
       return {
         ...m,
         isCoordinator: isC
       };
     });
 
-    // 2. Mescla todos os coordenadores cadastrados na campanha para garantir que apareçam na relação geral
+    // 2. Mescla todos os coordenadores cadastrados na campanha que ainda não constem na lista
     coordinators.forEach(c => {
-      const alreadyInList = list.some(m => matchMemberToCoordinator(m, c));
+      const alreadyInList = list.some(m => isPersonCoordinator(m, [c]));
       if (!alreadyInList) {
-        list.unshift({
+        list.push({
           id: c.id.startsWith('coord-') ? c.id : `coord-${c.id}`,
           name: c.name,
           email: c.email || '',
@@ -651,7 +677,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     });
 
     return list;
-  }, [members, coordinators, isFieldCoordinator]);
+  }, [members, coordinators, isFieldCoordinator, isPersonCoordinator]);
 
   const filteredMembers = useMemo(() => {
     // Se for Coordenador de Campo, vê APENAS seus próprios eleitores cadastrados

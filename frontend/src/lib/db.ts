@@ -15,16 +15,41 @@ export const db = {
 
     if (client) {
       try {
-        let query = client.from('members').select('*').order('createdAt', { ascending: false });
-        // FILTRAGEM ESTRETA: apenas membros da organização específica
-        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
-          query = query.eq('org_id', orgId);
+        const allFetched: Member[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+          let query = client
+            .from('members')
+            .select('*')
+            .range(from, from + pageSize - 1)
+            .order('createdAt', { ascending: false });
+
+          if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+            query = query.eq('org_id', orgId);
+          }
+
+          const { data, error } = await query;
+          if (error) {
+            console.warn("Aviso ao buscar membros no Supabase:", error);
+            break;
+          }
+          if (data && data.length > 0) {
+            allFetched.push(...(data as unknown as Member[]));
+            if (data.length < pageSize) {
+              hasMore = false;
+            } else {
+              from += pageSize;
+            }
+          } else {
+            hasMore = false;
+          }
         }
-        const { data, error } = await query;
-        if (!error && data) {
-          supabaseMembers = data as unknown as Member[];
-        } else if (error) {
-          console.warn("Aviso ao buscar membros no Supabase:", error);
+
+        if (allFetched.length > 0) {
+          supabaseMembers = allFetched;
         }
       } catch (err) {
         console.warn("Exceção ao buscar membros:", err);
@@ -146,13 +171,41 @@ export const db = {
 
     if (client) {
       try {
-        let query = client.from('coordinators').select('*').order('name');
-        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
-          query = query.eq('org_id', orgId);
+        const allCoordsFetched: Coordinator[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+          let query = client
+            .from('coordinators')
+            .select('*')
+            .range(from, from + pageSize - 1)
+            .order('name');
+
+          if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+            query = query.eq('org_id', orgId);
+          }
+
+          const { data, error } = await query;
+          if (error) {
+            console.warn("Aviso ao buscar coordenadores no Supabase:", error);
+            break;
+          }
+          if (data && data.length > 0) {
+            allCoordsFetched.push(...(data as unknown as Coordinator[]));
+            if (data.length < pageSize) {
+              hasMore = false;
+            } else {
+              from += pageSize;
+            }
+          } else {
+            hasMore = false;
+          }
         }
-        const { data, error } = await query;
-        if (!error && data) {
-          supabaseCoords = data as unknown as Coordinator[];
+
+        if (allCoordsFetched.length > 0) {
+          supabaseCoords = allCoordsFetched;
         }
       } catch {}
     }

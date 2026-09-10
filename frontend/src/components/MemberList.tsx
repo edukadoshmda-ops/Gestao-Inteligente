@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Member, Coordinator } from '../types';
-import { User, Trash2, Edit3, MessageCircle } from 'lucide-react';
+import { User, Trash2, Edit3, MessageCircle, ShieldCheck } from 'lucide-react';
 
 interface MemberListProps {
   members: Member[];
@@ -93,6 +93,10 @@ export default function MemberList({
     );
   }
 
+  const isCoord = (m: Member) => Boolean(m.isCoordinator);
+  const coordCount = members.filter(isCoord).length;
+  const voterCount = members.length - coordCount;
+
   return (
     <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-none">
       <div 
@@ -119,17 +123,30 @@ export default function MemberList({
           </thead>
           <tbody className="divide-y divide-gray-100">
             {members.map((member, idx) => {
+              const isCoordinatorMember = !isCoordinatorView && Boolean(member.isCoordinator);
+
               return (
                 <tr 
                   key={member.id} 
                   className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50 transition-colors cursor-pointer group`}
                   onClick={() => onSelect(member)}
                 >
-                  {/* Nome Completo: Sempre em preto */}
+                  {/* Nome Completo: VERDE para Coordenadores, PRETO para Eleitores */}
                   <td className="px-4 py-2.5 text-xs font-black uppercase border-r border-gray-100">
-                    <span className="text-black font-black tracking-tight">
-                      {member.name}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span 
+                        style={{ color: isCoordinatorMember ? '#059669' : '#000000' }}
+                        className={isCoordinatorMember ? "text-emerald-600 font-black tracking-tight" : "text-black font-black tracking-tight"}
+                      >
+                        {member.name}
+                      </span>
+                      {isCoordinatorMember && (
+                        <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0 inline-flex items-center gap-1 shadow-sm">
+                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+                          Coordenador
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   {/* WhatsApp */}
@@ -200,14 +217,24 @@ export default function MemberList({
         </table>
       </div>
 
-      {/* Rodapé com contagem limpa */}
+      {/* Rodapé com contagem unificada da campanha ou isolada do coordenador */}
       <div className="bg-gov-blue text-white px-4 py-2.5 flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] font-black uppercase tracking-widest sticky bottom-0 z-10 shadow-lg">
-        <span className="text-yellow-400">
+        <span className="text-yellow-400 font-black">
           {isCoordinatorView ? 'Meus Eleitores Cadastrados' : 'Relação Geral da Campanha'}
         </span>
-        <div className="flex items-center gap-4">
-          <span className="text-white font-black bg-white/10 px-3 py-1 rounded-full">
-            Total: {members.length} {members.length === 1 ? 'Pessoa Cadastrada' : 'Pessoas Cadastradas'}
+        <div className="flex items-center gap-4 flex-wrap">
+          {!isCoordinatorView && (
+            <>
+              <span className="text-emerald-300 font-black bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                ● {coordCount} Coordenadores (Verde)
+              </span>
+              <span className="text-gray-200 font-black bg-white/10 px-2.5 py-0.5 rounded-full">
+                ● {voterCount} Eleitores (Preto)
+              </span>
+            </>
+          )}
+          <span className="text-white font-black bg-white/15 px-3 py-0.5 rounded-full">
+            Total: {members.length} {isCoordinatorView ? 'Eleitores' : 'Pessoas Cadastradas'}
           </span>
         </div>
       </div>
