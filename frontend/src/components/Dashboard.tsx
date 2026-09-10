@@ -78,6 +78,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                        (profile.email && profile.email.toLowerCase().includes('edukadoshmda')) || 
                        profile.role === 'super_admin';
   const isCampaignAdmin = profile.role === 'general_coordination' || profile.role === 'candidate' || isSuperAdmin;
+  const isFieldCoordinator = profile.role === 'coordinator';
   const isOverdue = organization?.subscription_status === 'overdue' && !isSuperAdmin;
 
   // Cores dinâmicas da campanha
@@ -609,7 +610,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   };
 
   // Relação Geral Unificada de todas as pessoas cadastradas na Campanha (Coordenadores + Eleitores)
+  // Coordenadores de campo NUNCA veem a relação geral da campanha, apenas seus próprios eleitores
   const allCampaignPeople = useMemo(() => {
+    if (isFieldCoordinator) {
+      return members;
+    }
+
     // 1. Marca se o membro já cadastrado também é um coordenador
     const list: Member[] = members.map(m => {
       const isC = coordinators.some(c => matchMemberToCoordinator(m, c)) || !!m.isCoordinator;
@@ -645,13 +651,15 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     });
 
     return list;
-  }, [members, coordinators]);
+  }, [members, coordinators, isFieldCoordinator]);
 
   const filteredMembers = useMemo(() => {
-    // Se estiver com filtro drilldown de coordenador ativo, mostra os eleitores daquele coordenador
-    let baseMembers = activeCoordinator 
-      ? members.filter(m => matchMemberToCoordinator(m, activeCoordinator))
-      : allCampaignPeople;
+    // Se for Coordenador de Campo, vê APENAS seus próprios eleitores cadastrados
+    let baseMembers = isFieldCoordinator
+      ? members
+      : (activeCoordinator 
+          ? members.filter(m => matchMemberToCoordinator(m, activeCoordinator))
+          : allCampaignPeople);
 
     if (!debouncedSearch.trim()) return baseMembers;
 
@@ -662,7 +670,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       (m.voterId && m.voterId.includes(term)) ||
       (m.neighborhood && m.neighborhood.toLowerCase().includes(term))
     );
-  }, [allCampaignPeople, members, debouncedSearch, activeCoordinator]);
+  }, [allCampaignPeople, members, debouncedSearch, activeCoordinator, isFieldCoordinator]);
 
 
   if (isOverdue && !isSuperAdmin) {
@@ -863,7 +871,9 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                   <div className="flex flex-col flex-1 w-full lg:min-w-[250px]">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                      <span className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Base: {allCampaignPeople.length} pessoas na campanha</span>
+                      <span className="text-[10px] font-black text-gov-blue uppercase tracking-widest">
+                        {isFieldCoordinator ? `Meus Cadastros: ${members.length} eleitores` : `Base: ${allCampaignPeople.length} pessoas na campanha`}
+                      </span>
                     </div>
                     <div className="relative">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gov-blue/30" />
@@ -1024,6 +1034,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       onDelete={handleDeleteMember}
                       onSelect={() => { }}
                       welcomeTemplate={organization?.welcome_template}
+                      isCoordinatorView={isFieldCoordinator}
                     />
                   </div>
                 ) : activeTab === 'chat' ? (

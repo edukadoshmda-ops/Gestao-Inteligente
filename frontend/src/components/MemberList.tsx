@@ -10,6 +10,7 @@ interface MemberListProps {
   onEdit: (member: Member) => void;
   onSelect: (member: Member) => void;
   welcomeTemplate?: string;
+  isCoordinatorView?: boolean;
 }
 
 const formatPhone = (phone: string | null | undefined) => {
@@ -40,7 +41,15 @@ const getWhatsAppLink = (phone: string | null | undefined, name: string, templat
   return `https://wa.me/${formatted}?text=${encodeURIComponent(personalizedMsg)}`;
 };
 
-export default function MemberList({ members, coordinators = [], onDelete, onEdit, onSelect, welcomeTemplate }: MemberListProps) {
+export default function MemberList({ 
+  members, 
+  coordinators = [], 
+  onDelete, 
+  onEdit, 
+  onSelect, 
+  welcomeTemplate,
+  isCoordinatorView = false
+}: MemberListProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startY, setStartY] = useState(0);
@@ -214,18 +223,24 @@ export default function MemberList({ members, coordinators = [], onDelete, onEdi
         </table>
       </div>
 
-      {/* Rodapé com contagem unificada da campanha */}
+      {/* Rodapé com contagem unificada da campanha ou isolada do coordenador */}
       <div className="bg-gov-blue text-white px-4 py-2.5 flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] font-black uppercase tracking-widest sticky bottom-0 z-10 shadow-lg">
-        <span className="text-yellow-400">Relação Geral da Campanha</span>
+        <span className="text-yellow-400">
+          {isCoordinatorView ? 'Meus Eleitores Cadastrados' : 'Relação Geral da Campanha'}
+        </span>
         <div className="flex items-center gap-4 flex-wrap">
-          <span className="text-emerald-300 font-black bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30">
-            ● {coordCount} Coordenadores (Verde)
-          </span>
-          <span className="text-gray-200 bg-white/10 px-2 py-0.5 rounded-full">
-            ● {voterCount} Eleitores (Preto)
-          </span>
+          {!isCoordinatorView && (
+            <>
+              <span className="text-emerald-300 font-black bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                ● {coordCount} Coordenadores (Verde)
+              </span>
+              <span className="text-gray-200 bg-white/10 px-2 py-0.5 rounded-full">
+                ● {voterCount} Eleitores (Preto)
+              </span>
+            </>
+          )}
           <span className="text-white font-black">
-            Total: {members.length} Pessoas Cadastradas
+            Total: {members.length} {isCoordinatorView ? 'Eleitores' : 'Pessoas Cadastradas'}
           </span>
         </div>
       </div>

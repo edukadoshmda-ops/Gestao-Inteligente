@@ -67,30 +67,36 @@ function SidebarContent({
             }
             // Candidato e Coordenador Geral VÊEM TUDO DA CAMPANHA
             return true;
-          }).map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              title={item.label}
-              className={`w-full flex items-center justify-between px-4 py-3 transition-all hover-lift active-scale rounded-2xl ${
-                activeTab === item.id
-                  ? 'bg-white/10 text-white font-black shadow-lg border-l-4 border-gov-yellow'
-                  : 'text-white/65 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <item.icon
-                  className={`w-4 h-4 shrink-0 ${
-                    activeTab === item.id ? 'text-white' : 'text-gov-yellow'
-                  }`}
-                />
-                <span className="text-[11px] font-bold uppercase tracking-widest whitespace-nowrap">
-                  {item.label}
-                </span>
-              </div>
-              {activeTab === item.id && <ChevronRight className="w-3 h-3 shrink-0" />}
-            </button>
-          ))}
+          }).map((item) => {
+            const itemLabel = item.id === 'list' && role === 'coordinator' 
+              ? 'Meus Eleitores' 
+              : item.label;
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => onTabChange(item.id)}
+                title={itemLabel}
+                className={`w-full flex items-center justify-between px-4 py-3 transition-all hover-lift active-scale rounded-2xl ${
+                  activeTab === item.id
+                    ? 'bg-white/10 text-white font-black shadow-lg border-l-4 border-gov-yellow'
+                    : 'text-white/65 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <item.icon
+                    className={`w-4 h-4 shrink-0 ${
+                      activeTab === item.id ? 'text-white' : 'text-gov-yellow'
+                    }`}
+                  />
+                  <span className="text-[11px] font-bold uppercase tracking-widest whitespace-nowrap">
+                    {itemLabel}
+                  </span>
+                </div>
+                {activeTab === item.id && <ChevronRight className="w-3 h-3 shrink-0" />}
+              </button>
+            );
+          })}
 
           {isSuperAdmin && (
             <button
