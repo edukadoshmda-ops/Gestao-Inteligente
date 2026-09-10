@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react';
-import { Member } from '../types';
-import { User, Trash2, Edit3, MessageCircle } from 'lucide-react';
+import { Member, Coordinator } from '../types';
+import { User, Trash2, Edit3, MessageCircle, ShieldCheck } from 'lucide-react';
+import { matchMemberToCoordinator } from '../lib/coordinatorUtils';
 
 interface MemberListProps {
   members: Member[];
+  coordinators?: Coordinator[];
   onDelete: (id: string) => void;
   onEdit: (member: Member) => void;
   onSelect: (member: Member) => void;
@@ -38,7 +40,7 @@ const getWhatsAppLink = (phone: string | null | undefined, name: string, templat
   return `https://wa.me/${formatted}?text=${encodeURIComponent(personalizedMsg)}`;
 };
 
-export default function MemberList({ members, onDelete, onEdit, onSelect, welcomeTemplate }: MemberListProps) {
+export default function MemberList({ members, coordinators = [], onDelete, onEdit, onSelect, welcomeTemplate }: MemberListProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startY, setStartY] = useState(0);
@@ -73,15 +75,24 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
     setIsDragging(false);
   };
 
+  const isCoordinator = (member: Member): boolean => {
+    if (member.isCoordinator) return true;
+    if (!coordinators || coordinators.length === 0) return false;
+    return coordinators.some(c => matchMemberToCoordinator(member, c));
+  };
+
   if (members.length === 0) {
     return (
       <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gov-blue/20">
         <User className="w-16 h-16 text-gov-bg mx-auto mb-4" />
         <h3 className="text-xl font-black text-gov-blue uppercase tracking-tight">Nenhum registro encontrado</h3>
-        <p className="text-blue-400 text-sm font-medium italic">Inicie o processo de registro de apoiadores.</p>
+        <p className="text-blue-400 text-sm font-medium italic">Inicie o processo de registro de apoiadores ou coordenadores.</p>
       </div>
     );
   }
+
+  const coordCount = members.filter(m => isCoordinator(m)).length;
+  const voterCount = members.length - coordCount;
 
   return (
     <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-none">
@@ -108,71 +119,115 @@ export default function MemberList({ members, onDelete, onEdit, onSelect, welcom
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {members.map((member, idx) => (
-              <tr 
-                key={member.id} 
-                className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50 transition-colors cursor-pointer group`}
-                onClick={() => onSelect(member)}
-              >
-                <td className="px-4 py-2.5 text-xs font-black text-gray-900 uppercase border-r border-gray-100">
-                  {member.name}
-                </td>
-                <td className="px-4 py-2.5 text-xs border-r border-gray-100">
-                  <div className="flex items-center gap-2">
-                    <a 
-                      href={getWhatsAppLink(member.phone, member.name, welcomeTemplate)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="hover:text-green-600 transition-colors flex items-center gap-1.5"
-                    >
-                      {member.phone ? (
-                        <span className="font-black text-blue-700 text-sm">{formatPhone(member.phone)}</span>
-                      ) : (
-                        <span className="text-red-500 font-black italic"> (SEM TELEFONE)</span>
+            {members.map((member, idx) => {
+              const coord = isCoordinator(member);
+
+              return (
+                <tr 
+                  key={member.id} 
+                  className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50 transition-colors cursor-pointer group`}
+                  onClick={() => onSelect(member)}
+                >
+                  {/* Nome Completo: VERDE para Coordenadores, PRETO para Eleitores */}
+                  <td className="px-4 py-2.5 text-xs font-black uppercase border-r border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <span 
+                        style={{ color: coord ? '#059669' : '#000000' }}
+                        className={coord ? "text-emerald-600 font-black tracking-tight" : "text-black font-black tracking-tight"}
+                      >
+                        {member.name}
+                      </span>
+                      {coord && (
+                        <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0 inline-flex items-center gap-1">
+                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+                          Coordenador
+                        </span>
                       )}
-                      <MessageCircle className="w-4 h-4 text-green-500" />
-                    </a>
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-xs font-bold text-gray-600 border-r border-gray-100 text-center">
-                  {member.age || 'N/A'}
-                </td>
-                <td className="px-4 py-2.5 text-[10px] font-black text-blue-400 uppercase border-r border-gray-100">
-                  {member.gender || 'N/A'}
-                </td>
-                <td className="px-4 py-2.5 text-xs border-r border-gray-100">
-                  <div className="flex flex-col">
-                    <span className="font-black text-gov-blue text-[11px]">{member.voterId || 'N/A'}</span>
-                    <span className="text-[9px] text-gray-400 font-bold uppercase">
-                      SEC: {member.voterSection || '0000'} / ZON: {member.voterZone || '000'}
+                    </div>
+                  </td>
+
+                  {/* WhatsApp */}
+                  <td className="px-4 py-2.5 text-xs border-r border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <a 
+                        href={getWhatsAppLink(member.phone, member.name, welcomeTemplate)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:text-green-600 transition-colors flex items-center gap-1.5"
+                      >
+                        {member.phone ? (
+                          <span className="font-black text-blue-700 text-sm">{formatPhone(member.phone)}</span>
+                        ) : (
+                          <span className="text-red-500 font-black italic"> (SEM TELEFONE)</span>
+                        )}
+                        <MessageCircle className="w-4 h-4 text-green-500" />
+                      </a>
+                    </div>
+                  </td>
+
+                  {/* Idade */}
+                  <td className="px-4 py-2.5 text-xs font-bold text-gray-600 border-r border-gray-100 text-center">
+                    {member.age || 'N/A'}
+                  </td>
+
+                  {/* Gênero */}
+                  <td className="px-4 py-2.5 text-[10px] font-black uppercase border-r border-gray-100">
+                    <span className={coord ? "text-emerald-600 font-black" : "text-blue-500"}>
+                      {member.gender || 'N/A'}
                     </span>
-                  </div>
-                </td>
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center justify-center gap-2">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onEdit(member); }}
-                      className="p-1.5 text-gov-blue hover:bg-gov-bg rounded-xl transition-all"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDelete(member.id); }}
-                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+
+                  {/* Título / Seção / Zona */}
+                  <td className="px-4 py-2.5 text-xs border-r border-gray-100">
+                    <div className="flex flex-col">
+                      <span className="font-black text-gov-blue text-[11px]">{member.voterId || 'N/A'}</span>
+                      <span className="text-[9px] text-gray-400 font-bold uppercase">
+                        SEC: {member.voterSection || '0000'} / ZON: {member.voterZone || '000'}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* Ações */}
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onEdit(member); }}
+                        className="p-1.5 text-gov-blue hover:bg-gov-bg rounded-xl transition-all"
+                        title="Editar registro"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(member.id); }}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        title="Excluir registro"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div className="bg-gov-blue text-white px-4 py-2 flex justify-between items-center text-[10px] font-black uppercase tracking-widest sticky bottom-0 z-10">
-        <span>Gestão Inteligente 2026</span>
-        <span>Total: {members.length} registros</span>
+
+      {/* Rodapé com contagem unificada da campanha */}
+      <div className="bg-gov-blue text-white px-4 py-2.5 flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] font-black uppercase tracking-widest sticky bottom-0 z-10 shadow-lg">
+        <span className="text-yellow-400">Relação Geral da Campanha</span>
+        <div className="flex items-center gap-4 flex-wrap">
+          <span className="text-emerald-300 font-black bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30">
+            ● {coordCount} Coordenadores (Verde)
+          </span>
+          <span className="text-gray-200 bg-white/10 px-2 py-0.5 rounded-full">
+            ● {voterCount} Eleitores (Preto)
+          </span>
+          <span className="text-white font-black">
+            Total: {members.length} Pessoas Cadastradas
+          </span>
+        </div>
       </div>
     </div>
   );

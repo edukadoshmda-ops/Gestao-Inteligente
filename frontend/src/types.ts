@@ -54,6 +54,8 @@ export interface Member {
   org_id?: string;
   network_id?: string;
   supportLevel?: string;
+  isCoordinator?: boolean;
+  coordinatorRole?: string;
 }
 
 export interface Voter {

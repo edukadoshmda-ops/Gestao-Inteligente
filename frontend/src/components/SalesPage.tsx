@@ -129,7 +129,7 @@ export default function SalesPage({ onBack, orgId, plan = 'full', onChangePlan }
       tagline: "Estrutura essencial para sua campanha",
       features: [
         "Gestão Básica de Apoiadores",
-        "Limite de até 5 Coordenadores",
+        "Limite de até 200 Coordenadores",
         "Exportação de dados em Excel",
         "Mapas e Relatórios Simplificados",
         "Suporte via e-mail comercial"

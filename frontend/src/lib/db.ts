@@ -31,33 +31,60 @@ export const db = {
       }
     }
 
-    // Carregar dados locais (LocalStorage) para resiliência máxima
-    let localData: Member[] = [];
+    // 1. Carregar dados locais (tanto da org quanto global para nunca perder registros offline ou desvinculados)
+    const localMap = new Map<string, Member>();
     try {
+      const globalRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (globalRaw) {
+        const parsed: Member[] = JSON.parse(globalRaw);
+        parsed.forEach(m => { if (m?.id) localMap.set(String(m.id), m); });
+      }
       if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         const orgSpecific = localStorage.getItem(`@AppGestao:members_${orgId}`);
-        if (orgSpecific) localData = JSON.parse(orgSpecific);
-      } else {
-        const globalData = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (globalData) localData = JSON.parse(globalData);
+        if (orgSpecific) {
+          const parsed: Member[] = JSON.parse(orgSpecific);
+          parsed.forEach(m => { if (m?.id) localMap.set(String(m.id), m); });
+        }
       }
     } catch (e) {
       console.warn("Erro ao ler dados locais:", e);
     }
 
-    // Se temos dados do Supabase bem sucedidos, atualizamos o LocalStorage com a verdade do servidor
-    if (supabaseMembers !== null) {
-      try {
-        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
-          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(supabaseMembers));
-        } else {
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(supabaseMembers));
-        }
-      } catch {}
-      return supabaseMembers;
+    // 2. Mesclagem resiliente (Preserva sempre os dados locais e une com os remotos)
+    const mergedMap = new Map<string, Member>();
+
+    if (supabaseMembers && supabaseMembers.length > 0) {
+      supabaseMembers.forEach(m => {
+        if (m?.id) mergedMap.set(String(m.id), m);
+      });
     }
 
-    return localData;
+    // Adiciona os membros locais que ainda não constam no Supabase (evita que sumam se o Supabase vier vazio ou incompleto)
+    localMap.forEach((m, id) => {
+      if (!orgId || orgId === 'demo-org' || !m.org_id || m.org_id === orgId) {
+        if (!mergedMap.has(id)) {
+          mergedMap.set(id, m);
+        }
+      }
+    });
+
+    const finalMembers = Array.from(mergedMap.values()).sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    // 3. Atualizar LocalStorage com a base completa (sem nunca zerar acidentalmente)
+    try {
+      if (finalMembers.length > 0) {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalMembers));
+        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+          localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(finalMembers));
+        }
+      }
+    } catch {}
+
+    return finalMembers;
   },
 
   async saveMembers(members: Member[], orgId?: string): Promise<void> {
@@ -95,7 +122,7 @@ export const db = {
 
     // 2. Sincroniza no Supabase em lotes
     try {
-      const BATCH_SIZE = 100;
+      const BATCH_SIZE = 1000;
       for (let i = 0; i < members.length; i += BATCH_SIZE) {
         const batch = members.slice(i, i + BATCH_SIZE).map(toSupabaseRow);
 
@@ -130,29 +157,51 @@ export const db = {
       } catch {}
     }
 
-    let localCoords: Coordinator[] = [];
+    // 1. Carregar dados locais (global + org)
+    const localCoordMap = new Map<string, Coordinator>();
     try {
+      const globalRaw = localStorage.getItem(COORD_STORAGE_KEY);
+      if (globalRaw) {
+        const parsed: Coordinator[] = JSON.parse(globalRaw);
+        parsed.forEach(c => { if (c?.id) localCoordMap.set(String(c.id), c); });
+      }
       if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         const orgSpecific = localStorage.getItem(`@AppGestao:coordinators_${orgId}`);
-        if (orgSpecific) localCoords = JSON.parse(orgSpecific);
-      } else {
-        const globalCoords = localStorage.getItem(COORD_STORAGE_KEY);
-        if (globalCoords) localCoords = JSON.parse(globalCoords);
+        if (orgSpecific) {
+          const parsed: Coordinator[] = JSON.parse(orgSpecific);
+          parsed.forEach(c => { if (c?.id) localCoordMap.set(String(c.id), c); });
+        }
       }
     } catch {}
 
-    if (supabaseCoords !== null) {
-      try {
-        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
-          localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(supabaseCoords));
-        } else {
-          localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(supabaseCoords));
-        }
-      } catch {}
-      return supabaseCoords;
+    // 2. Mesclagem resiliente
+    const mergedCoordMap = new Map<string, Coordinator>();
+    if (supabaseCoords && supabaseCoords.length > 0) {
+      supabaseCoords.forEach(c => {
+        if (c?.id) mergedCoordMap.set(String(c.id), c);
+      });
     }
 
-    return localCoords;
+    localCoordMap.forEach((c, id) => {
+      if (!orgId || orgId === 'demo-org' || !c.org_id || c.org_id === orgId) {
+        if (!mergedCoordMap.has(id)) {
+          mergedCoordMap.set(id, c);
+        }
+      }
+    });
+
+    const finalCoords = Array.from(mergedCoordMap.values());
+
+    try {
+      if (finalCoords.length > 0) {
+        localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(finalCoords));
+        if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
+          localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(finalCoords));
+        }
+      }
+    } catch {}
+
+    return finalCoords;
   },
 
   async addCoordinator(coordinator: Omit<Coordinator, 'id' | 'createdAt'>): Promise<Coordinator | null> {

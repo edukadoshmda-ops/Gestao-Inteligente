@@ -7,7 +7,7 @@ import CoordinatorForm from './CoordinatorForm';
 import CoordinatorList from './CoordinatorList';
 import Sidebar from './Sidebar';
 import Toast from './Toast';
-import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon } from 'lucide-react';
+import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
@@ -21,6 +21,7 @@ import AIInsights from './AIInsights';
 import ElectionDay from './ElectionDay';
 import Settings from './Settings';
 import { checkPermissions, getNetworkFilter } from '../lib/permissions';
+import { matchMemberToCoordinator, exportCoordinatorExcel } from '../lib/coordinatorUtils';
 
 import { Organization, Profile } from '../types';
 
@@ -325,7 +326,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         });
 
         console.log(`🚶 Coordenador de Campo: 0 coordenadores externos e ${fieldMembers.length} eleitores próprios.`);
-        setCoordinators([]);
+        // Preserva os dados de coordenadores para não quebrar loggedInCoordinator nem disparar loops de re-render
+        setCoordinators(allCoordinators);
         setMembers(fieldMembers);
         return;
       }
@@ -606,21 +608,50 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
   };
 
-  const filteredMembers = useMemo(() => {
-    let baseMembers = members;
+  // Relação Geral Unificada de todas as pessoas cadastradas na Campanha (Coordenadores + Eleitores)
+  const allCampaignPeople = useMemo(() => {
+    // 1. Marca se o membro já cadastrado também é um coordenador
+    const list: Member[] = members.map(m => {
+      const isC = coordinators.some(c => matchMemberToCoordinator(m, c)) || !!m.isCoordinator;
+      return {
+        ...m,
+        isCoordinator: isC
+      };
+    });
 
-    // Filtro por Coordenador selecionado (se houver drill-down ativo)
-    if (activeCoordinator) {
-      const coordIds = new Set<string>();
-      if (activeCoordinator.id) {
-        const raw = String(activeCoordinator.id).trim().toLowerCase();
-        coordIds.add(raw);
-        coordIds.add(raw.replace(/^coord-/, ''));
+    // 2. Mescla todos os coordenadores cadastrados na campanha para garantir que apareçam na relação geral
+    coordinators.forEach(c => {
+      const alreadyInList = list.some(m => matchMemberToCoordinator(m, c));
+      if (!alreadyInList) {
+        list.unshift({
+          id: c.id.startsWith('coord-') ? c.id : `coord-${c.id}`,
+          name: c.name,
+          email: c.email || '',
+          phone: c.whatsapp || '',
+          voterId: c.voterId || '',
+          voterSection: c.voterSection || '',
+          voterZone: c.voterZone || '',
+          gender: 'Coordenador',
+          neighborhood: c.neighborhood || '',
+          region: c.city || 'DF',
+          referral: 'Coordenação Geral',
+          createdAt: c.createdAt || new Date().toISOString(),
+          org_id: c.org_id,
+          network_id: c.network_id,
+          isCoordinator: true,
+          coordinatorRole: c.role || 'coordinator'
+        });
       }
-      if (activeCoordinator.email) coordIds.add(activeCoordinator.email.trim().toLowerCase());
+    });
 
-      baseMembers = baseMembers.filter(m => matchIdentifier(m.coordinatorId, coordIds) || matchIdentifier(m.network_id, coordIds));
-    }
+    return list;
+  }, [members, coordinators]);
+
+  const filteredMembers = useMemo(() => {
+    // Se estiver com filtro drilldown de coordenador ativo, mostra os eleitores daquele coordenador
+    let baseMembers = activeCoordinator 
+      ? members.filter(m => matchMemberToCoordinator(m, activeCoordinator))
+      : allCampaignPeople;
 
     if (!debouncedSearch.trim()) return baseMembers;
 
@@ -631,7 +662,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       (m.voterId && m.voterId.includes(term)) ||
       (m.neighborhood && m.neighborhood.toLowerCase().includes(term))
     );
-  }, [members, debouncedSearch, activeCoordinator, matchIdentifier]);
+  }, [allCampaignPeople, members, debouncedSearch, activeCoordinator]);
 
 
   if (isOverdue && !isSuperAdmin) {
@@ -832,7 +863,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                   <div className="flex flex-col flex-1 w-full lg:min-w-[250px]">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                      <span className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Base: {members.length} registros sincronizados</span>
+                      <span className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Base: {allCampaignPeople.length} pessoas na campanha</span>
                     </div>
                     <div className="relative">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gov-blue/30" />
@@ -955,6 +986,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                     <CoordinatorList
                       coordinators={coordinators}
                       members={members}
+                      candidateName={organization?.candidate_name}
+                      onNotify={showToast}
                       onEdit={(c) => { setSelectedCoordinator(c); setIsAddingCoordinator(true); }}
                       onDelete={permissions.canDeleteCoordinators ? handleDeleteCoordinator : undefined}
                       onSelect={(c) => {
@@ -966,20 +999,27 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 ) : activeTab === 'list' ? (
                   <div className="space-y-6">
                     {activeCoordinator && (
-                      <div className="bg-gov-blue p-4 text-white flex justify-between items-center border-l-8 border-gov-yellow rounded-2xl">
+                      <div className="bg-gov-blue p-4 text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-l-8 border-gov-yellow rounded-2xl shadow-md">
                         <div className="flex items-center gap-4">
-                          <ShieldCheck className="w-6 h-6 text-gov-yellow hidden sm:block" />
+                          <ShieldCheck className="w-6 h-6 text-gov-yellow hidden sm:block shrink-0" />
                           <div>
                             <h4 className="font-black uppercase text-xs">Relatório Individual: {activeCoordinator.name}</h4>
-                            <p className="text-[10px] text-blue-200 uppercase font-bold tracking-widest">Mostrando apenas eleitores cadastrados por este coordenador</p>
+                            <p className="text-[10px] text-blue-200 uppercase font-bold tracking-widest">Mostrando apenas eleitores vinculados a este coordenador</p>
                           </div>
                         </div>
+                        <button
+                          onClick={() => exportCoordinatorExcel(activeCoordinator, members, organization?.candidate_name, showToast)}
+                          className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0"
+                          title={`Baixar planilha Excel com os apoiadores de ${activeCoordinator.name}`}
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+                          Baixar Planilha (.xlsx)
+                        </button>
                       </div>
                     )}
                     <MemberList
-                      members={activeCoordinator
-                        ? filteredMembers.filter(m => m.coordinatorId === activeCoordinator.id)
-                        : filteredMembers}
+                      members={filteredMembers}
+                      coordinators={coordinators}
                       onEdit={(m) => { setSelectedMember(m); setIsAdding(true); }}
                       onDelete={handleDeleteMember}
                       onSelect={() => { }}

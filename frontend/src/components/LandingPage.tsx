@@ -560,7 +560,7 @@ export default function LandingPage({ onStart, onLogin, onPublicRegister, onCrea
                 <ul className="space-y-4 mb-8">
                   {[
                     "Gestão Básica de Apoiadores",
-                    "Limite de até 5 Coordenadores",
+                    "Limite de até 200 Coordenadores",
                     "Exportação Básica em Excel",
                     "Mapas e Relatórios Simplificados",
                     "Suporte Comercial por E-mail"

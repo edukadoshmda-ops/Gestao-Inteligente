@@ -11,6 +11,7 @@ interface AIInsightsProps {
 
 import { db } from '../lib/db';
 import { Organization } from '../types';
+import { matchMemberToCoordinator } from '../lib/coordinatorUtils';
 
 export default function AIInsights({ members, coordinators, organization }: AIInsightsProps) {
   // Estatísticas computadas em tempo real para a IA
@@ -301,7 +302,7 @@ export default function AIInsights({ members, coordinators, organization }: AIIn
     if (coordinators.length > 0) {
       const coordPerformance = coordinators.map(c => ({
         name: c.name,
-        count: members.filter(m => m.coordinatorId === c.id).length
+        count: members.filter(m => matchMemberToCoordinator(m, c)).length
       })).sort((a, b) => b.count - a.count);
 
       if (coordPerformance.length > 1) {

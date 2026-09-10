@@ -18,6 +18,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas-pro';
+import { matchMemberToCoordinator } from '../lib/coordinatorUtils';
 
 interface AnalyticsTabProps {
   members: Member[];
@@ -451,16 +452,19 @@ export default function AnalyticsTab({ members, coordinators, activeTab }: Analy
 
   const [neighborhoodSearch, setNeighborhoodSearch] = useState('');
 
-  // 1. Dados do Ranking
+  // 1. Dados do Ranking (resiliente com matchMemberToCoordinator)
   const rankingData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    members.forEach(m => {
-      if (m.coordinatorId) {
-        counts[m.coordinatorId] = (counts[m.coordinatorId] || 0) + 1;
-      }
-    });
     return coordinators
-      .map(c => ({ id: c.id, name: c.name, count: counts[c.id] || 0, points: (counts[c.id] || 0) * 10, photo: c.photo }))
+      .map(c => {
+        const count = members.filter(m => matchMemberToCoordinator(m, c)).length;
+        return {
+          id: c.id,
+          name: c.name,
+          count,
+          points: count * 10,
+          photo: c.photo
+        };
+      })
       .sort((a, b) => b.count - a.count);
   }, [members, coordinators]);
 
