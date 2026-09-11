@@ -1016,15 +1016,40 @@ export default function AdminMaster() {
 
                 <div>
                   <label className="text-[10px] font-black uppercase text-gray-500 block mb-1 tracking-wider flex items-center gap-1">
-                    <ImageIcon className="w-3 h-3 text-gov-blue" /> URL da Logo (PNG Transparente • 1:1)
+                    <ImageIcon className="w-3 h-3 text-gov-blue" /> Logo da Campanha (URL ou Upload)
                   </label>
-                  <input 
-                    type="url" 
-                    value={editFormData.logo_url} 
-                    onChange={e => setEditFormData({ ...editFormData, logo_url: e.target.value })} 
-                    className="w-full p-3 bg-gray-50 border-2 border-gray-100 outline-none focus:border-gov-blue font-bold text-xs rounded-xl text-gov-blue"
-                    placeholder="https://exemplo.com/logo.png"
-                  />
+                  <div className="flex gap-2">
+                    <input 
+                      type="url" 
+                      value={editFormData.logo_url} 
+                      onChange={e => setEditFormData({ ...editFormData, logo_url: e.target.value })} 
+                      className="flex-1 p-3 bg-gray-50 border-2 border-gray-100 outline-none focus:border-gov-blue font-bold text-xs rounded-xl text-gov-blue"
+                      placeholder="https://exemplo.com/logo.png"
+                    />
+                    <label className="bg-gov-blue hover:bg-blue-800 text-white font-black px-4 flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap text-xs">
+                      <ImageIcon className="w-4 h-4" /> 
+                      Fazer Upload
+                      <input 
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 2 * 1024 * 1024) {
+                              alert('A imagem é muito grande. Escolha uma imagem de até 2MB.');
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setEditFormData({ ...editFormData, logo_url: reader.result as string });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
                   {editFormData.logo_url && (
                     <div className="mt-2 flex items-center gap-3 p-2 bg-gray-50 border border-gray-200 rounded-xl">
                       <img src={editFormData.logo_url} alt="Preview Logo" className="w-10 h-10 object-contain bg-white rounded-lg border" onError={(e) => { (e.target as any).style.display = 'none'; }} />
