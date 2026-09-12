@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Megaphone, FileText, Image as ImageIcon, Plus, Trash2, Download, ExternalLink, Filter, MessageSquare, Save, Info, UploadCloud, FileUp, Loader2, CheckCircle2 } from 'lucide-react';
+import { 
+  Megaphone, FileText, Image as ImageIcon, Plus, Trash2, Download, ExternalLink, 
+  Filter, MessageSquare, Save, Info, UploadCloud, FileUp, Loader2, CheckCircle2, 
+  Share2, Copy, Check, Smartphone, Send, X, Phone
+} from 'lucide-react';
 import { supabase, supabaseAdmin } from '../lib/supabase';
 import { Announcement, Organization } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -68,6 +72,19 @@ const DEFAULT_MATERIALS: Announcement[] = [
   }
 ];
 
+// Utilitário para converter Base64 em arquivo real para o Web Share API
+function dataURLtoFile(dataurl: string, filename: string): File {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
 export default function Materials({ isAdmin = true, organization, org_id }: MaterialsProps) {
   const currentOrgId = org_id || organization?.id || 'general';
   const STORAGE_KEY = `@AppGestao:materials_${currentOrgId}`;
@@ -80,6 +97,12 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
   const [activeSubTab, setActiveSubTab] = useState<'materials' | 'whatsapp'>('materials');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+
+  // Estado para o Modal de Compartilhamento WhatsApp
+  const [whatsAppShareItem, setWhatsAppShareItem] = useState<Announcement | null>(null);
+  const [sharePhone, setSharePhone] = useState('');
+  const [customShareText, setCustomShareText] = useState('');
+  const [copiedShare, setCopiedShare] = useState(false);
 
   const [templates, setTemplates] = useState(() => {
     try {
@@ -114,6 +137,108 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
     } catch (e) {
       console.warn('Erro ao salvar materiais no localStorage:', e);
     }
+  };
+
+  // Inicializa o texto ao abrir o modal de WhatsApp
+  const openWhatsAppModal = (item: Announcement) => {
+    setWhatsAppShareItem(item);
+    setSharePhone('');
+    setCopiedShare(false);
+
+    const candidate = organization?.candidate_name ? `🏛️ *${organization.candidate_name.toUpperCase()}*` : '';
+    const partyOrNumber = organization?.party_number ? `*VOTE ${organization.party_number}*` : '';
+    
+    let defaultText = `📢 *MATERIAL DE CAMPANHA OFICIAL*\n`;
+    if (candidate || partyOrNumber) {
+      defaultText += `${[candidate, partyOrNumber].filter(Boolean).join(' - ')}\n`;
+    }
+    defaultText += `\n📌 *${item.title}*\n`;
+    if (item.content) {
+      defaultText += `${item.content}\n`;
+    }
+
+    if (item.fileUrl) {
+      defaultText += `\n📥 *Baixe o arquivo oficial aqui:*\n${item.fileUrl}\n`;
+    } else if (item.imageUrl && !item.imageUrl.startsWith('data:')) {
+      defaultText += `\n🖼️ *Visualizar imagem oficial:*\n${item.imageUrl}\n`;
+    }
+
+    defaultText += `\n🗳️ *Encaminhe para seus amigos, familiares e apoiadores da campanha!*`;
+
+    setCustomShareText(defaultText);
+  };
+
+  const handleSendViaWhatsApp = (targetPhone?: string) => {
+    if (!whatsAppShareItem) return;
+    const textToSend = customShareText.trim();
+    const cleanNum = (targetPhone || sharePhone || '').replace(/\D/g, '');
+
+    let url = '';
+    if (cleanNum) {
+      const fullPhone = cleanNum.startsWith('55') ? cleanNum : `55${cleanNum}`;
+      url = `https://api.whatsapp.com/send?phone=${fullPhone}&text=${encodeURIComponent(textToSend)}`;
+    } else {
+      url = `https://api.whatsapp.com/send?text=${encodeURIComponent(textToSend)}`;
+    }
+
+    window.open(url, '_blank');
+    showFeedback('Abrindo WhatsApp...');
+  };
+
+  const handleNativeShareImage = async () => {
+    if (!whatsAppShareItem) return;
+    const textToSend = customShareText.trim();
+
+    if (navigator.share) {
+      try {
+        const shareData: any = {
+          title: whatsAppShareItem.title,
+          text: textToSend,
+        };
+
+        if (whatsAppShareItem.imageUrl && whatsAppShareItem.imageUrl.startsWith('data:')) {
+          try {
+            const cleanTitle = whatsAppShareItem.title.toLowerCase().replace(/[^a-z0-9]/gi, '_');
+            const file = dataURLtoFile(whatsAppShareItem.imageUrl, `${cleanTitle}.jpg`);
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              shareData.files = [file];
+            }
+          } catch (e) {
+            console.warn('Erro ao processar imagem para share:', e);
+          }
+        }
+
+        await navigator.share(shareData);
+        showFeedback('✅ Compartilhado com sucesso!');
+        return;
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.warn('Share API falhou:', err);
+        }
+      }
+    }
+
+    // Fallback: abre no WhatsApp
+    handleSendViaWhatsApp();
+  };
+
+  const handleDownloadImage = () => {
+    if (!whatsAppShareItem?.imageUrl) return;
+    const link = document.createElement('a');
+    link.href = whatsAppShareItem.imageUrl;
+    const cleanTitle = whatsAppShareItem.title.toLowerCase().replace(/[^a-z0-9]/gi, '_');
+    link.download = `${cleanTitle || 'material_campanha'}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showFeedback('📥 Imagem baixada no seu aparelho!');
+  };
+
+  const handleCopyShareText = () => {
+    navigator.clipboard.writeText(customShareText);
+    setCopiedShare(true);
+    showFeedback('📋 Mensagem copiada com sucesso!');
+    setTimeout(() => setCopiedShare(false), 2500);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'imageUrl' | 'fileUrl') => {
@@ -295,7 +420,6 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
       }
 
       if (dbMaterials.length > 0) {
-        // Merge db com local
         const merged = [...dbMaterials];
         cached.forEach(c => {
           if (!merged.some(m => m.id === c.id)) merged.push(c);
@@ -305,7 +429,6 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
       } else if (cached.length > 0) {
         setMaterials(cached);
       } else {
-        // Usa sementes padrão de campanha para não ficar vazio
         setMaterials(DEFAULT_MATERIALS);
         saveMaterialsToLocal(DEFAULT_MATERIALS);
       }
@@ -731,47 +854,78 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
                     }`}
                   >
                     {m.imageUrl && (
-                      <div className="h-48 overflow-hidden relative bg-gray-100">
+                      <div className="h-52 overflow-hidden relative bg-gray-100">
                         <img src={m.imageUrl} alt={m.title} className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" />
                         <span className="absolute top-3 left-3 bg-gov-blue/90 backdrop-blur-sm text-white px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg">
                           {m.category === 'project' ? 'Projeto' : m.category === 'banner' ? 'Banner' : m.category === 'flyer' ? 'Papel' : 'Aviso'}
                         </span>
+
+                        {/* Botão de WhatsApp flutuante na foto */}
+                        <button
+                          type="button"
+                          onClick={() => openWhatsAppModal(m)}
+                          className="absolute top-3 right-3 bg-emerald-600 hover:bg-emerald-700 text-white p-2 rounded-xl shadow-lg transition-transform hover:scale-110 flex items-center justify-center gap-1 text-[9px] font-black uppercase"
+                          title="Enviar Material pelo WhatsApp"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
                       </div>
                     )}
                     <div className="p-6 flex-1 flex flex-col justify-between">
                       <div>
                         {!m.imageUrl && (
-                          <span className="inline-block bg-gov-blue/10 text-gov-blue px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg mb-3">
-                            {m.category === 'project' ? 'Projeto Estratégico' : m.category === 'banner' ? 'Banner Oficial' : m.category === 'flyer' ? 'Material Impresso' : 'Aviso Geral'}
-                          </span>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="inline-block bg-gov-blue/10 text-gov-blue px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg">
+                              {m.category === 'project' ? 'Projeto Estratégico' : m.category === 'banner' ? 'Banner Oficial' : m.category === 'flyer' ? 'Material Impresso' : 'Aviso Geral'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openWhatsAppModal(m)}
+                              className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 p-1.5 rounded-lg transition-colors flex items-center gap-1 text-[9px] font-black uppercase"
+                              title="Enviar pelo WhatsApp"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
                         <h4 className="font-black text-gov-blue uppercase mb-2 text-sm leading-snug">{m.title}</h4>
                         <p className="text-[11px] font-bold text-gray-500 leading-relaxed mb-6 line-clamp-3">{m.content}</p>
                       </div>
 
-                      <div className="flex gap-2 pt-4 border-t border-gray-100 items-center justify-between">
+                      {/* Barra de Ações: Ver/Baixar + WhatsApp + Excluir */}
+                      <div className="flex flex-wrap sm:flex-nowrap gap-2 pt-4 border-t border-gray-100 items-center justify-between">
                         {m.fileUrl ? (
                           <a 
                             href={m.fileUrl} 
                             target="_blank" 
                             rel="noopener noreferrer" 
                             download 
-                            className="flex-1 bg-gov-blue hover:bg-blue-800 text-white py-2.5 text-[9px] font-black uppercase text-center rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                            className="flex-1 bg-gov-blue hover:bg-blue-800 text-white py-2.5 px-2 text-[9px] font-black uppercase text-center rounded-xl transition-colors flex items-center justify-center gap-1 shadow-sm"
                           >
-                            <Download className="w-3.5 h-3.5 text-gov-yellow" /> Baixar Arquivo
+                            <Download className="w-3.5 h-3.5 text-gov-yellow" /> Baixar
                           </a>
                         ) : m.imageUrl ? (
                           <a 
                             href={m.imageUrl} 
                             target="_blank" 
                             rel="noopener noreferrer" 
-                            className="flex-1 bg-gov-bg hover:bg-gray-200 text-gov-blue py-2.5 text-[9px] font-black uppercase text-center border border-gov-blue/10 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                            className="flex-1 bg-gov-bg hover:bg-gray-200 text-gov-blue py-2.5 px-2 text-[9px] font-black uppercase text-center border border-gov-blue/10 rounded-xl transition-colors flex items-center justify-center gap-1"
                           >
                             <ExternalLink className="w-3.5 h-3.5" /> Ver Imagem
                           </a>
                         ) : (
                           <span className="text-[9px] font-black text-gray-300 uppercase py-2">Sem anexo</span>
                         )}
+
+                        {/* Botão de Envio WhatsApp com destaque */}
+                        <button
+                          type="button"
+                          onClick={() => openWhatsAppModal(m)}
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-2 text-[9px] font-black uppercase text-center rounded-xl transition-all flex items-center justify-center gap-1 shadow-sm hover:shadow-md"
+                          title="Compartilhar pelo WhatsApp"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-white" /> WhatsApp
+                        </button>
 
                         <div className="flex items-center gap-1">
                           {deleteConfirmId === m.id ? (
@@ -877,6 +1031,147 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
               </div>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Envio e Compartilhamento pelo WhatsApp */}
+      <AnimatePresence>
+        {whatsAppShareItem && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white border-4 border-emerald-600 rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl max-h-[92vh] overflow-y-auto space-y-6"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-md">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-gov-blue uppercase text-base tracking-tight">Enviar pelo WhatsApp</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase">
+                      {organization?.candidate_name ? `Campanha ${organization.candidate_name}` : 'Material de Campanha'}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setWhatsAppShareItem(null)}
+                  className="text-gray-400 hover:text-red-500 p-2 rounded-xl text-xl font-bold transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Preview do Material */}
+              <div className="flex items-center gap-4 bg-gray-50 border border-gray-200 p-3.5 rounded-2xl">
+                {whatsAppShareItem.imageUrl ? (
+                  <img 
+                    src={whatsAppShareItem.imageUrl} 
+                    alt={whatsAppShareItem.title} 
+                    className="w-20 h-20 object-cover rounded-xl border border-gray-200 shadow-sm shrink-0" 
+                  />
+                ) : (
+                  <div className="w-20 h-20 bg-blue-100 text-gov-blue rounded-xl flex items-center justify-center shrink-0">
+                    <FileText className="w-8 h-8" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <span className="text-[8px] font-black uppercase px-2 py-0.5 bg-gov-blue text-white rounded-md inline-block mb-1">
+                    {whatsAppShareItem.category === 'banner' ? 'Banner' : whatsAppShareItem.category === 'project' ? 'Projeto' : 'Material'}
+                  </span>
+                  <h4 className="font-black text-gov-blue uppercase text-xs truncate">{whatsAppShareItem.title}</h4>
+                  <p className="text-[10px] text-gray-500 font-bold line-clamp-2 mt-0.5">{whatsAppShareItem.content}</p>
+                </div>
+              </div>
+
+              {/* Opção de Enviar para um Contato Específico */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                  Número de Destino (Opcional)
+                </label>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    value={sharePhone}
+                    onChange={(e) => setSharePhone(e.target.value)}
+                    placeholder="Ex: 91988887777 (Deixe em branco para escolher grupo ou contato no WhatsApp)"
+                    className="w-full bg-gray-50 border-2 border-gray-200 p-3.5 text-xs font-bold rounded-2xl outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+                <p className="text-[9px] text-gray-400 font-semibold">
+                  💡 Deixe vazio para que o WhatsApp abra sua lista de conversas e grupos para você escolher.
+                </p>
+              </div>
+
+              {/* Mensagem Formatada */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
+                    Mensagem que será enviada
+                  </label>
+                  <span className="text-[8px] font-black text-emerald-600 uppercase bg-emerald-50 px-2 py-0.5 rounded-md">
+                    Personalizável
+                  </span>
+                </div>
+                <textarea
+                  rows={6}
+                  value={customShareText}
+                  onChange={(e) => setCustomShareText(e.target.value)}
+                  className="w-full bg-gray-50 border-2 border-gray-200 p-3.5 text-xs font-bold text-gray-700 rounded-2xl outline-none focus:border-emerald-500 resize-none transition-colors"
+                />
+              </div>
+
+              {/* Botões de Ação */}
+              <div className="space-y-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleSendViaWhatsApp()}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-xs tracking-wider rounded-2xl shadow-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
+                >
+                  <MessageSquare className="w-5 h-5 text-white" />
+                  Abrir WhatsApp e Enviar
+                </button>
+
+                {whatsAppShareItem.imageUrl && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleNativeShareImage}
+                      className="py-3 bg-blue-50 hover:bg-blue-100 text-gov-blue border border-blue-200 font-black uppercase text-[10px] tracking-wider rounded-2xl flex items-center justify-center gap-2 transition-colors"
+                      title="Compartilhar imagem direto no aplicativo do WhatsApp"
+                    >
+                      <Share2 className="w-4 h-4 text-gov-blue" />
+                      Compartilhar Foto (Celular)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadImage}
+                      className="py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 font-black uppercase text-[10px] tracking-wider rounded-2xl flex items-center justify-center gap-2 transition-colors"
+                      title="Baixar imagem no celular ou computador"
+                    >
+                      <Download className="w-4 h-4 text-gray-600" />
+                      Baixar Imagem
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCopyShareText}
+                  className={`w-full py-3 ${copiedShare ? 'bg-green-600' : 'bg-gray-100 hover:bg-gray-200'} text-gray-700 font-black uppercase text-[10px] tracking-wider rounded-2xl flex items-center justify-center gap-2 transition-colors`}
+                >
+                  {copiedShare ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
+                  <span className={copiedShare ? 'text-white' : ''}>
+                    {copiedShare ? 'Mensagem Copiada!' : 'Copiar Texto da Mensagem'}
+                  </span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
