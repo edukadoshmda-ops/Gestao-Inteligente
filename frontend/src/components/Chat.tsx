@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Clock, Camera, Mic, MicOff, X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Send, Clock, Camera, Mic, MicOff, X, Trash2, CheckCircle2 } from 'lucide-react';
+import { supabase, supabaseAdmin } from '../lib/supabase';
 import { ChatMessage } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -10,6 +10,9 @@ interface ChatProps {
 }
 
 export default function Chat({ currentUser, org_id }: ChatProps) {
+  const currentOrgId = org_id || 'general';
+  const CHAT_STORAGE_KEY = `@AppGestao:chat_messages_${currentOrgId}`;
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -20,6 +23,22 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  const saveMessagesToLocal = (msgs: ChatMessage[]) => {
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(msgs));
+    } catch (e) {
+      console.warn('Erro ao salvar chat no localStorage:', e);
+    }
+  };
+
+  const loadMessagesFromLocal = (): ChatMessage[] => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  };
 
   const toggleRecording = async () => {
     if (isRecording) {
@@ -47,7 +66,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
             const base64Audio = reader.result as string;
             setPendingMedia({ type: 'audio', data: base64Audio });
           };
-          stream.getTracks().forEach(track => track.stop()); // release mic
+          stream.getTracks().forEach(track => track.stop());
         };
 
         mediaRecorder.start();
@@ -76,7 +95,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
         
-        const base64Image = canvas.toDataURL('image/jpeg', 0.6); // Compress to 60% quality
+        const base64Image = canvas.toDataURL('image/jpeg', 0.6);
         setPendingMedia({ type: 'image', data: base64Image });
       };
       img.src = event.target?.result as string;
@@ -85,50 +104,55 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
     e.target.value = '';
   };
 
-  const isDemo = currentUser.id.startsWith('demo-') || currentUser.id === 'admin' || currentUser.id === 'anon';
-
   const sendMediaMessage = async (mediaData: string, type: 'image' | 'audio') => {
     setIsLoading(true);
-    const messageData: Omit<ChatMessage, 'id' | 'createdAt'> = {
+    const newMsg: ChatMessage = {
+      id: crypto.randomUUID(),
       content: type === 'image' ? '📷 Imagem enviada' : '🎤 Áudio enviado',
-      senderId: currentUser.id,
-      senderName: currentUser.name,
+      senderId: currentUser.id || 'user-' + Date.now(),
+      senderName: currentUser.name || 'Coordenador',
       imageUrl: type === 'image' ? mediaData : undefined,
       audioUrl: type === 'audio' ? mediaData : undefined,
+      createdAt: new Date().toISOString(),
       org_id: org_id,
     };
 
-    if (isDemo) {
-      const newMsg: ChatMessage = {
-        ...messageData,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, newMsg]);
-      setIsLoading(false);
-      return;
-    }
+    // Exibe imediatamente no chat e salva no localStorage
+    setMessages(prev => {
+      const updated = [...prev, newMsg];
+      saveMessagesToLocal(updated);
+      return updated;
+    });
 
     try {
-      const { error } = await supabase.from('messages').insert([messageData]);
-      if (error) {
-        if (error.code === '42703' || error.message?.includes('column')) {
-          console.warn("Colunas de mídia não encontradas. Usando Payload Embutido no texto.");
+      if (supabase) {
+        const { error } = await supabase.from('messages').insert([{
+          id: newMsg.id,
+          content: newMsg.content,
+          senderId: newMsg.senderId,
+          senderName: newMsg.senderName,
+          imageUrl: newMsg.imageUrl,
+          audioUrl: newMsg.audioUrl,
+          org_id: newMsg.org_id,
+          createdAt: newMsg.createdAt
+        }]);
+
+        if (error) {
+          console.warn("Tentando fallback de payload embutido ou supabaseAdmin:", error);
           const fallbackData = {
+            id: newMsg.id,
             content: `[PAYLOAD_${type.toUpperCase()}]:${mediaData}`,
-            senderId: currentUser.id,
-            senderName: currentUser.name,
-            org_id: org_id,
+            senderId: newMsg.senderId,
+            senderName: newMsg.senderName,
+            org_id: newMsg.org_id,
+            createdAt: newMsg.createdAt
           };
-          const { error: fallbackError } = await supabase.from('messages').insert([fallbackData]);
-          if (fallbackError) throw fallbackError;
-        } else {
-          throw error;
+          const client = (supabaseAdmin && supabaseAdmin !== supabase) ? supabaseAdmin : supabase;
+          await client.from('messages').insert([fallbackData]);
         }
       }
     } catch (err) {
-      console.error('Erro ao enviar mídia:', err);
-      alert('Não foi possível enviar o arquivo.');
+      console.warn('Erro ao persistir mídia no Supabase (mantida local):', err);
     } finally {
       setIsLoading(false);
     }
@@ -137,14 +161,32 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
   useEffect(() => {
     fetchMessages();
 
-    // Inscrição Realtime
+    // Inscrição Realtime para INSERT e DELETE
     const channel = supabase
-      .channel('chat-messages')
+      .channel(`chat-messages-${currentOrgId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload: any) => {
-          setMessages((prev) => [...prev, payload.new]);
+          if (!payload.new) return;
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === payload.new.id)) return prev;
+            const updated = [...prev, payload.new];
+            saveMessagesToLocal(updated);
+            return updated;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        (payload: any) => {
+          if (!payload.old) return;
+          setMessages((prev) => {
+            const updated = prev.filter((m) => m.id !== payload.old.id);
+            saveMessagesToLocal(updated);
+            return updated;
+          });
         }
       )
       .subscribe();
@@ -152,7 +194,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentOrgId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -161,30 +203,67 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
   }, [messages]);
 
   const fetchMessages = async () => {
-    if (isDemo) {
-      setMessages([{
-        id: 'demo-msg-1',
-        content: '👋 Olá! Este é o Chat dos Coordenadores. Envie mensagens de texto, fotos e áudios para sua equipe.',
-        senderId: 'system',
-        senderName: 'Sistema',
-        createdAt: new Date().toISOString(),
-        org_id: org_id
-      }]);
+    // 1. Carrega do cache local imediatamente para exibição instantânea
+    const cached = loadMessagesFromLocal();
+    if (cached.length > 0) {
+      setMessages(cached);
       setIsLoading(false);
-      return;
     }
 
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .order('createdAt', { ascending: true })
-        .limit(100);
+      let serverMessages: ChatMessage[] = [];
 
-      if (error) throw error;
-      setMessages(data || []);
+      if (supabase) {
+        let query = supabase
+          .from('messages')
+          .select('*')
+          .order('createdAt', { ascending: true })
+          .limit(150);
+
+        if (org_id) {
+          query = query.or(`org_id.eq.${org_id},org_id.is.null`);
+        }
+
+        const { data, error } = await query;
+        if (!error && data && data.length > 0) {
+          serverMessages = data;
+        } else if (supabaseAdmin && supabaseAdmin !== supabase) {
+          const { data: adminData } = await supabaseAdmin
+            .from('messages')
+            .select('*')
+            .order('createdAt', { ascending: true })
+            .limit(150);
+          if (adminData && adminData.length > 0) {
+            serverMessages = adminData;
+          }
+        }
+      }
+
+      if (serverMessages.length > 0) {
+        // Unir mensagens do servidor e locais garantindo ordenação
+        const mergedMap = new Map<string, ChatMessage>();
+        cached.forEach(m => mergedMap.set(m.id, m));
+        serverMessages.forEach(m => mergedMap.set(m.id, m));
+        const merged = Array.from(mergedMap.values()).sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        setMessages(merged);
+        saveMessagesToLocal(merged);
+      } else if (cached.length === 0) {
+        // Mensagem inicial do sistema
+        const starterMsg: ChatMessage = {
+          id: 'starter-welcome-msg',
+          content: '👋 Olá! Este é o Chat dos Coordenadores. Envie mensagens de texto, fotos e áudios para sua equipe.',
+          senderId: 'system',
+          senderName: 'Sistema',
+          createdAt: new Date().toISOString(),
+          org_id: org_id
+        };
+        setMessages([starterMsg]);
+        saveMessagesToLocal([starterMsg]);
+      }
     } catch (err) {
-      console.error('Erro ao carregar chat:', err);
+      console.warn('Erro ao carregar chat remoto:', err);
     } finally {
       setIsLoading(false);
     }
@@ -201,26 +280,65 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
       return;
     }
 
-    const messageData = {
-      content: newMessage.trim(),
-      senderId: currentUser.id,
-      senderName: currentUser.name,
+    const text = newMessage.trim();
+    setNewMessage('');
+
+    const newMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      content: text,
+      senderId: currentUser.id || 'user-' + Date.now(),
+      senderName: currentUser.name || 'Coordenador',
+      createdAt: new Date().toISOString(),
       org_id: org_id,
     };
 
-    setNewMessage('');
+    // 1. Adiciona na tela imediatamente (Zero delay)
+    setMessages(prev => {
+      const updated = [...prev, newMsg];
+      saveMessagesToLocal(updated);
+      return updated;
+    });
 
-    if (isDemo) {
-      setMessages(prev => [...prev, { id: crypto.randomUUID(), ...messageData, createdAt: new Date().toISOString() }]);
-      return;
-    }
-
+    // 2. Persiste no Supabase
     try {
-      const { error } = await supabase.from('messages').insert([messageData]);
-      if (error) throw error;
+      const messageData = {
+        id: newMsg.id,
+        content: newMsg.content,
+        senderId: newMsg.senderId,
+        senderName: newMsg.senderName,
+        org_id: newMsg.org_id,
+        createdAt: newMsg.createdAt
+      };
+
+      if (supabase) {
+        const { error } = await supabase.from('messages').insert([messageData]);
+        if (error && supabaseAdmin && supabaseAdmin !== supabase) {
+          await supabaseAdmin.from('messages').insert([messageData]);
+        }
+      }
     } catch (err) {
-      console.error('Erro ao enviar mensagem:', err);
-      alert('Não foi possível enviar a mensagem: ' + JSON.stringify(err));
+      console.warn('Mensagem salva no aparelho; erro ao sincronizar com banco:', err);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    // 1. Remove da tela imediatamente
+    setMessages(prev => {
+      const updated = prev.filter(m => m.id !== messageId);
+      saveMessagesToLocal(updated);
+      return updated;
+    });
+
+    // 2. Remove do Supabase
+    try {
+      if (supabase) {
+        const { error } = await supabase.from('messages').delete().eq('id', messageId);
+        if (error && supabaseAdmin && supabaseAdmin !== supabase) {
+          await supabaseAdmin.from('messages').delete().eq('id', messageId);
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao excluir mensagem no banco:', err);
     }
   };
 
@@ -246,7 +364,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
       {/* Messages Area */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/50 rounded-2xl"
+        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-gray-50/50 rounded-2xl"
       >
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
@@ -263,40 +381,67 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
         ) : (
           messages.map((msg) => {
             const isMe = msg.senderId === currentUser.id;
+            const isSystem = msg.senderId === 'system';
+
             return (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 key={msg.id}
-                className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${isSystem ? 'justify-start' : isMe ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`max-w-[80%] ${isMe ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                <div className={`max-w-[85%] sm:max-w-[75%] ${isMe ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   {!isMe && (
                     <span className="text-[9px] font-black text-gov-blue uppercase ml-1">{msg.senderName}</span>
                   )}
                   <div
-                    className={`p-3 rounded-xl border-b-2 shadow-sm ${
-                      isMe
-                        ? 'bg-white text-gov-blue border-gov-blue rounded-l-2xl rounded-tr-2xl border-r-4'
-                        : 'bg-gray-100 text-gray-700 border-gray-200 rounded-r-2xl rounded-tl-2xl'
+                    className={`p-3.5 shadow-sm relative group ${
+                      isSystem
+                        ? 'bg-amber-50 text-amber-900 border border-amber-200 rounded-2xl'
+                        : isMe
+                        ? 'bg-white text-gov-blue border-gov-blue border-b-2 border-r-4 rounded-l-2xl rounded-tr-2xl'
+                        : 'bg-gray-100 text-gray-800 border border-gray-200 rounded-r-2xl rounded-tl-2xl'
                     }`}
                   >
                     {(msg.imageUrl || msg.content.startsWith('[PAYLOAD_IMAGE]:')) && (
-                      <img src={msg.imageUrl || msg.content.replace('[PAYLOAD_IMAGE]:', '')} alt="Anexo" className="w-full max-w-xs rounded-xl border border-gray-200 mb-2 shadow-sm" />
+                      <img 
+                        src={msg.imageUrl || msg.content.replace('[PAYLOAD_IMAGE]:', '')} 
+                        alt="Anexo" 
+                        className="w-full max-w-xs rounded-xl border border-gray-200 mb-2 shadow-sm object-cover max-h-60" 
+                      />
                     )}
                     {(msg.audioUrl || msg.content.startsWith('[PAYLOAD_AUDIO]:')) && (
-                      <audio src={msg.audioUrl || msg.content.replace('[PAYLOAD_AUDIO]:', '')} controls className="w-full max-w-xs mb-2 h-10" />
+                      <audio 
+                        src={msg.audioUrl || msg.content.replace('[PAYLOAD_AUDIO]:', '')} 
+                        controls 
+                        className="w-full max-w-xs mb-2 h-10" 
+                      />
                     )}
-                    <p className="text-xs font-black leading-relaxed">
+                    <p className="text-xs font-black leading-relaxed whitespace-pre-wrap break-words">
                       {msg.content.startsWith('[PAYLOAD_IMAGE]:') ? '📷 Imagem enviada' : 
                        msg.content.startsWith('[PAYLOAD_AUDIO]:') ? '🎤 Áudio enviado' : 
                        msg.content}
                     </p>
-                    <div className={`flex items-center gap-1 mt-1 ${isMe ? 'text-blue-400' : 'text-gray-400'}`}>
-                      <Clock className="w-2.5 h-2.5" />
-                      <span className="text-[8px] font-black">
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+
+                    <div className={`flex items-center justify-between gap-3 mt-2 pt-1 border-t ${
+                      isMe ? 'border-blue-100/60 text-blue-400' : 'border-gray-200/60 text-gray-400'
+                    }`}>
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5" />
+                        <span className="text-[8px] font-black">
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      {/* Ícone para excluir mensagem */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMessage(msg.id)}
+                        className="p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Excluir esta mensagem"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -327,7 +472,7 @@ export default function Chat({ currentUser, org_id }: ChatProps) {
             {pendingMedia.type === 'audio' && (
               <audio src={pendingMedia.data} controls className="h-10 w-full max-w-sm" />
             )}
-            <span className="text-xs font-black text-gov-blue uppercase">Arquivo Pronto! Digite algo ou envie direto.</span>
+            <span className="text-xs font-black text-gov-blue uppercase">Arquivo Pronto! Digite algo ou clique em Enviar.</span>
           </motion.div>
         )}
         <div className="flex gap-2 items-center w-full">

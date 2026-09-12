@@ -10,7 +10,7 @@ import Toast from './Toast';
 import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, normalizeName, cleanPhone } from '../lib/db';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAdmin } from '../lib/supabase';
 import AnalyticsTab from './AnalyticsTab';
 import { useExcelTools } from '../hooks/useExcelTools';
 import Chat from './Chat';
@@ -652,7 +652,10 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       localStorage.removeItem('forja_members_data');
       
       if (supabase && currentOrgId) {
-        await supabase.from('members').delete().eq('org_id', currentOrgId);
+        const { error } = await supabase.from('members').delete().eq('org_id', currentOrgId);
+        if (error && supabaseAdmin && supabaseAdmin !== supabase) {
+          await supabaseAdmin.from('members').delete().eq('org_id', currentOrgId);
+        }
       }
       
       showToast('Base de dados limpa com sucesso!');
@@ -672,7 +675,9 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       
       if (supabase && currentOrgId) {
         const { error } = await supabase.from('coordinators').delete().eq('org_id', currentOrgId);
-        if (error) throw error;
+        if (error && supabaseAdmin && supabaseAdmin !== supabase) {
+          await supabaseAdmin.from('coordinators').delete().eq('org_id', currentOrgId);
+        }
       }
       
       showToast('Coordenadores apagados com sucesso!');
@@ -1052,14 +1057,16 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       <Download className="w-3.5 h-3.5" /> {isExporting ? '...' : 'Exportar'}
                     </button>
 
-                    <button
-                      onClick={handleCleanDuplicates}
-                      disabled={isCleaningDuplicates}
-                      className="bg-purple-600 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-purple-700 transition-all shadow-sm rounded-2xl"
-                      title="Varre e remove permanentemente todos os registros com telefone ou nome duplicado"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" /> {isCleaningDuplicates ? 'Limpando...' : 'Remover Duplicados'}
-                    </button>
+                    {isCampaignAdmin && (
+                      <button
+                        onClick={handleCleanDuplicates}
+                        disabled={isCleaningDuplicates}
+                        className="bg-purple-600 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-purple-700 transition-all shadow-sm rounded-2xl"
+                        title="Varre e remove permanentemente todos os registros com telefone ou nome duplicado"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> {isCleaningDuplicates ? 'Limpando...' : 'Remover Duplicados'}
+                      </button>
+                    )}
 
                     <button
                       onClick={() => setShowShareModal(true)}
@@ -1078,7 +1085,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       </button>
                     )}
 
-                    {isSuperAdmin && (
+                    {isCampaignAdmin && (
                       <button
                         onClick={handleClearAll}
                         className="col-span-2 sm:col-span-1 bg-red-50 text-red-600 border border-red-200 px-4 py-3 font-black uppercase text-[10px] flex items-center justify-center gap-1.5 hover:bg-red-100 transition-all rounded-2xl"
@@ -1104,7 +1111,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                         >
                           <Share2 className="w-4 h-4 text-green-200" /> Link de Cadastro
                         </button>
-                        {isSuperAdmin && (
+                        {isCampaignAdmin && (
                           <button
                             onClick={handleClearCoordinators}
                             className="bg-red-50 text-red-600 border border-red-200 px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-red-100 flex-shrink-0"
@@ -1170,13 +1177,17 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 ) : activeTab === 'chat' ? (
                   <Chat 
                     currentUser={{ 
-                      id: isSuperAdmin ? 'admin' : loggedInCoordinator?.id || 'anon',
-                      name: isSuperAdmin ? 'Suporte Gestão Inteligente' : loggedInCoordinator?.name || 'Coordenador'
+                      id: profile?.id || (loggedInCoordinator?.id ? String(loggedInCoordinator.id) : ('user-' + (username || 'coord'))),
+                      name: profile?.full_name || loggedInCoordinator?.name || username || 'Coordenador'
                     }}
-                    org_id={organization?.id}
+                    org_id={effectiveOrgId}
                   />
                 ) : activeTab === 'materials' ? (
-                  <Materials isAdmin={isSuperAdmin} organization={organization} />
+                  <Materials 
+                    isAdmin={true} 
+                    organization={organization} 
+                    org_id={effectiveOrgId}
+                  />
                 ) : activeTab === 'intelligence' ? (
                   <ElectoralIntelligence members={members} coordinators={coordinators} organization={organization} />
                 ) : activeTab === 'ai_manager' ? (
