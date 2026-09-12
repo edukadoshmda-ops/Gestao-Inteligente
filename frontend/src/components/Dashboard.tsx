@@ -9,7 +9,7 @@ import Sidebar from './Sidebar';
 import Toast from './Toast';
 import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db } from '../lib/db';
+import { db, normalizeName, cleanPhone } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import AnalyticsTab from './AnalyticsTab';
 import { useExcelTools } from '../hooks/useExcelTools';
@@ -467,15 +467,40 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       finalMemberData.org_id = currentOrgId;
     }
 
-    // Validação de Duplicidade (Regra de Negócio Profissional)
-    if (finalMemberData.voterId) {
-      const isDuplicate = members.some(m =>
-        m.voterId === finalMemberData.voterId &&
-        m.id !== selectedMember?.id
-      );
+    // Validação de Duplicidade Rigorosa (Telefone, Nome e Título de Eleitor)
+    const newPhone = cleanPhone(finalMemberData.phone);
+    const newName = normalizeName(finalMemberData.name);
+    const newVoter = (finalMemberData.voterId || '').trim();
 
-      if (isDuplicate) {
-        alert('⚠️ ATENÇÃO: Este Título de Eleitor já consta na nossa base de dados!');
+    if (newPhone && newPhone.length >= 8) {
+      const dupPhone = members.find(m =>
+        m.id !== selectedMember?.id &&
+        cleanPhone(m.phone) === newPhone
+      );
+      if (dupPhone) {
+        alert(`⚠️ ATENÇÃO: Este Telefone/WhatsApp já está cadastrado para o eleitor "${dupPhone.name}"!`);
+        return;
+      }
+    }
+
+    if (newName && newName.length >= 2) {
+      const dupName = members.find(m =>
+        m.id !== selectedMember?.id &&
+        normalizeName(m.name) === newName
+      );
+      if (dupName) {
+        alert(`⚠️ ATENÇÃO: Já existe um eleitor cadastrado com o nome "${dupName.name}" nesta campanha!`);
+        return;
+      }
+    }
+
+    if (newVoter && newVoter.length >= 5) {
+      const dupVoter = members.find(m =>
+        m.id !== selectedMember?.id &&
+        (m.voterId || '').trim() === newVoter
+      );
+      if (dupVoter) {
+        alert(`⚠️ ATENÇÃO: Este Título de Eleitor já consta cadastrado para "${dupVoter.name}"!`);
         return;
       }
     }
@@ -507,6 +532,30 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     const coordEmail = coordData.email?.trim().toLowerCase();
     const coordPass = (coordData as any).password;
     const myCoordId = loggedInCoordinator?.id || profile.id?.replace(/^coord-/, '') || profile.id;
+
+    // Validação de Duplicidade para Coordenadores
+    const newCoordName = normalizeName(coordData.name);
+    if (coordEmail) {
+      const dupEmail = coordinators.find(c =>
+        c.id !== selectedCoordinator?.id &&
+        c.email?.trim().toLowerCase() === coordEmail
+      );
+      if (dupEmail) {
+        alert(`⚠️ ATENÇÃO: Já existe um coordenador cadastrado com o e-mail "${coordEmail}"!`);
+        return;
+      }
+    }
+
+    if (newCoordName && newCoordName.length >= 3) {
+      const dupName = coordinators.find(c =>
+        c.id !== selectedCoordinator?.id &&
+        normalizeName(c.name) === newCoordName
+      );
+      if (dupName) {
+        alert(`⚠️ ATENÇÃO: Já existe um coordenador cadastrado com o nome "${dupName.name}"!`);
+        return;
+      }
+    }
 
     if (coordEmail && coordPass) {
       localStorage.setItem(`@AppGestao:userPass_${coordEmail}`, coordPass);
@@ -542,9 +591,9 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     if (!confirm('Deseja realmente excluir este eleitor?')) return;
     try {
       const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
-      setMembers(prev => prev.filter(m => m.id !== id));
+      setMembers(prev => prev.filter(m => String(m.id) !== String(id)));
       await db.deleteMember(id, currentOrgId);
-      showToast('Eleitor excluído com sucesso!');
+      showToast('Eleitor excluído permanentemente!');
     } catch (err) {
       console.error('Erro ao excluir eleitor:', err);
       showToast('Erro ao excluir eleitor.');
@@ -555,12 +604,34 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     if (!confirm('Deseja realmente excluir este coordenador?')) return;
     try {
       const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
-      setCoordinators(prev => prev.filter(c => c.id !== id));
+      setCoordinators(prev => prev.filter(c => String(c.id) !== String(id)));
       await db.deleteCoordinator(id, currentOrgId);
       showToast('Coordenador excluído com sucesso!');
     } catch (err) {
       console.error('Erro ao excluir coordenador:', err);
       showToast('Erro ao excluir coordenador.');
+    }
+  };
+
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
+
+  const handleCleanDuplicates = async () => {
+    if (!confirm('Deseja fazer a varredura e remover permanentemente todos os registros duplicados de telefone, nome e documento?')) return;
+    setIsCleaningDuplicates(true);
+    try {
+      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      const res = await db.cleanAllDuplicates(currentOrgId);
+      await loadDashboardData();
+      if (res.deletedCount > 0) {
+        showToast(`✅ Varredura concluída! ${res.deletedCount} duplicatas removidas permanentemente.`);
+      } else {
+        showToast('✨ Sua base já está 100% limpa! Nenhuma duplicidade encontrada.');
+      }
+    } catch (err: any) {
+      console.error('Erro ao remover duplicados:', err);
+      showToast('Erro ao processar remoção de duplicados.');
+    } finally {
+      setIsCleaningDuplicates(false);
     }
   };
 
@@ -570,16 +641,18 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     if (!confirm('Deseja REALMENTE apagar TODOS os eleitores cadastrados? Esta ação não pode ser desfeita.')) return;
     
     try {
-      setMembers([]);
       const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      const allIds = members.map(m => m.id);
+      setMembers([]);
+      await db.deleteMembers(allIds, currentOrgId);
+      
       if (currentOrgId) {
         localStorage.removeItem(`@AppGestao:members_${currentOrgId}`);
       }
       localStorage.removeItem('forja_members_data');
       
       if (supabase && currentOrgId) {
-        const { error } = await supabase.from('members').delete().eq('org_id', currentOrgId);
-        if (error) throw error;
+        await supabase.from('members').delete().eq('org_id', currentOrgId);
       }
       
       showToast('Base de dados limpa com sucesso!');
@@ -977,6 +1050,15 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       className={` ${isExporting ? 'bg-gray-100 text-gray-400' : 'bg-gov-yellow text-gov-blue hover:shadow-md'} px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 transition-all border border-gov-blue/10 rounded-2xl`}
                     >
                       <Download className="w-3.5 h-3.5" /> {isExporting ? '...' : 'Exportar'}
+                    </button>
+
+                    <button
+                      onClick={handleCleanDuplicates}
+                      disabled={isCleaningDuplicates}
+                      className="bg-purple-600 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-purple-700 transition-all shadow-sm rounded-2xl"
+                      title="Varre e remove permanentemente todos os registros com telefone ou nome duplicado"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> {isCleaningDuplicates ? 'Limpando...' : 'Remover Duplicados'}
                     </button>
 
                     <button

@@ -15,13 +15,258 @@ dotenv.config();
 const app = express();
 const PORT = 3500;
 
-// Configuração do Supabase
+// Configuração do Supabase (com service role para operações irrestritas)
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// Helper de normalização
+function normalizeName(n?: string | null): string {
+  if (!n) return '';
+  return n.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+}
+
+function cleanPhone(p?: string | null): string {
+  if (!p) return '';
+  return p.replace(/\D/g, '');
+}
+
+// --- ROTA DE EXCLUSÃO DE MEMBROS (GARANTIA DE EXCLUSÃO DEFINITIVA) ---
+app.post('/api/delete-members', async (req, res) => {
+  try {
+    const { ids = [] } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Nenhum ID fornecido.' });
+    }
+
+    const cleanIds = ids.map(id => String(id).trim()).filter(Boolean);
+    const BATCH_SIZE = 200;
+    let deletedCount = 0;
+
+    for (let i = 0; i < cleanIds.length; i += BATCH_SIZE) {
+      const batch = cleanIds.slice(i, i + BATCH_SIZE);
+      const { error, count } = await supabase
+        .from('members')
+        .delete({ count: 'exact' })
+        .in('id', batch);
+
+      if (error) {
+        console.error('Erro ao deletar lote no Supabase:', error);
+      } else {
+        deletedCount += (count || batch.length);
+      }
+    }
+
+    console.log(`🗑️ ${deletedCount} membros removidos com sucesso via backend.`);
+    res.json({ success: true, deletedCount });
+  } catch (err: any) {
+    console.error('Erro ao deletar membros:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- ROTA DE EXCLUSÃO DE COORDENADORES ---
+app.post('/api/delete-coordinators', async (req, res) => {
+  try {
+    const { ids = [] } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Nenhum ID fornecido.' });
+    }
+
+    const cleanIds = ids.map(id => String(id).trim()).filter(Boolean);
+    // Desvincular membros e rede do coordenador para evitar restrição de Foreign Key (409)
+    try {
+      await supabase.from('members').update({ coordinatorId: null }).in('coordinatorId', cleanIds);
+      await supabase.from('coordinators').update({ network_id: null }).in('network_id', cleanIds);
+    } catch (e) {
+      console.warn('Aviso ao desvincular FK de coordenadores:', e);
+    }
+
+    const { error, count } = await supabase
+      .from('coordinators')
+      .delete({ count: 'exact' })
+      .in('id', cleanIds);
+
+    if (error) throw error;
+    res.json({ success: true, deletedCount: count || cleanIds.length });
+  } catch (err: any) {
+    console.error('Erro ao deletar coordenadores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- ROTA DE DEDUPLICAÇÃO GERAL DE MEMBROS ---
+app.post('/api/deduplicate', async (req, res) => {
+  try {
+    const { orgId } = req.body;
+    console.log(`🧹 Iniciando deduplicação... ${orgId ? `Org: ${orgId}` : 'Todas as Orgs'}`);
+
+    // 1. Buscar todos os membros
+    let allMembers: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      let query = supabase.from('members').select('*').range(from, from + pageSize - 1);
+      if (orgId && orgId !== 'demo-org' && orgId !== 'undefined') {
+        query = query.eq('org_id', orgId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allMembers.push(...data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    // 2. Agrupar por org_id
+    const orgGroups: { [key: string]: any[] } = {};
+    allMembers.forEach(m => {
+      const o = m.org_id || 'global';
+      if (!orgGroups[o]) orgGroups[o] = [];
+      orgGroups[o].push(m);
+    });
+
+    const toDeleteIds: string[] = [];
+
+    // 3. Processar duplicidades dentro de cada organização
+    for (const orgKey in orgGroups) {
+      const list = orgGroups[orgKey];
+
+      // Ordenar: mais completos primeiro, depois os mais novos
+      list.sort((a, b) => {
+        const scoreA = (a.phone ? 5 : 0) + (a.voterId ? 5 : 0) + (a.email ? 3 : 0) + (a.birthDate ? 2 : 0) + (a.coordinatorId ? 2 : 0);
+        const scoreB = (b.phone ? 5 : 0) + (b.voterId ? 5 : 0) + (b.email ? 3 : 0) + (b.birthDate ? 2 : 0) + (b.coordinatorId ? 2 : 0);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+
+      const seenPhone = new Map<string, string>();
+      const seenName = new Map<string, string>();
+      const seenVoter = new Map<string, string>();
+
+      list.forEach(m => {
+        const phone = cleanPhone(m.phone);
+        const name = normalizeName(m.name);
+        const voter = (m.voterId || '').trim();
+
+        let isDup = false;
+
+        if (phone && phone.length >= 8) {
+          if (seenPhone.has(phone)) {
+            isDup = true;
+          }
+        }
+
+        if (!isDup && name && name.length >= 2) {
+          if (seenName.has(name)) {
+            isDup = true;
+          }
+        }
+
+        if (!isDup && voter && voter.length >= 5) {
+          if (seenVoter.has(voter)) {
+            isDup = true;
+          }
+        }
+
+        if (isDup) {
+          toDeleteIds.push(m.id);
+        } else {
+          if (phone && phone.length >= 8) seenPhone.set(phone, m.id);
+          if (name && name.length >= 2) seenName.set(name, m.id);
+          if (voter && voter.length >= 5) seenVoter.set(voter, m.id);
+        }
+      });
+    }
+
+    // 4. Executar exclusão em lotes
+    let deletedCount = 0;
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < toDeleteIds.length; i += BATCH_SIZE) {
+      const batch = toDeleteIds.slice(i, i + BATCH_SIZE);
+      const { error, count } = await supabase
+        .from('members')
+        .delete({ count: 'exact' })
+        .in('id', batch);
+
+      if (error) {
+        console.error('Erro ao deletar lote de duplicatas:', error);
+      } else {
+        deletedCount += (count || batch.length);
+      }
+    }
+
+    console.log(`✅ Deduplicação concluída: ${toDeleteIds.length} duplicatas eliminadas.`);
+    res.json({
+      success: true,
+      totalAnalyzed: allMembers.length,
+      deletedCount: toDeleteIds.length,
+      deletedIds: toDeleteIds,
+      remainingCount: allMembers.length - toDeleteIds.length
+    });
+  } catch (err: any) {
+    console.error('Erro na deduplicação:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- ROTA DE DEDUPLICAÇÃO DE COORDENADORES ---
+app.post('/api/deduplicate-coordinators', async (req, res) => {
+  try {
+    const { orgId } = req.body;
+    let query = supabase.from('coordinators').select('*');
+    if (orgId && orgId !== 'demo-org' && orgId !== 'undefined') {
+      query = query.eq('org_id', orgId);
+    }
+    const { data: coords, error } = await query;
+    if (error) throw error;
+    if (!coords || coords.length === 0) {
+      return res.json({ success: true, deletedCount: 0 });
+    }
+
+    const seenEmail = new Map<string, string>();
+    const seenName = new Map<string, string>();
+    const toDeleteIds: string[] = [];
+
+    coords.forEach(c => {
+      const email = (c.email || '').trim().toLowerCase();
+      const name = normalizeName(c.name);
+
+      let isDup = false;
+      if (email && email.length > 3) {
+        if (seenEmail.has(email)) isDup = true;
+      }
+      if (!isDup && name && name.length > 3) {
+        if (seenName.has(name)) isDup = true;
+      }
+
+      if (isDup) {
+        toDeleteIds.push(c.id);
+      } else {
+        if (email && email.length > 3) seenEmail.set(email, c.id);
+        if (name && name.length > 3) seenName.set(name, c.id);
+      }
+    });
+
+    if (toDeleteIds.length > 0) {
+      await supabase.from('coordinators').delete().in('id', toDeleteIds);
+    }
+
+    res.json({
+      success: true,
+      totalAnalyzed: coords.length,
+      deletedCount: toDeleteIds.length,
+      deletedIds: toDeleteIds,
+      remainingCount: coords.length - toDeleteIds.length
+    });
+  } catch (err: any) {
+    console.error('Erro na deduplicação de coordenadores:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- ROTA DE EXPORTAÇÃO EXCEL (EDIÇÃO PREMIUM) ---
 app.post('/api/export-excel', async (req, res) => {

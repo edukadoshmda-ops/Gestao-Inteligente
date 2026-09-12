@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Member, Organization } from '../types';
-import { db } from '../lib/db';
+import { db, normalizeName, cleanPhone } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { Save, Phone, Users, Hash, Mail, CheckCircle, Camera, Loader2, ArrowLeft, Mic, Sparkles } from 'lucide-react';
 import { createWorker } from 'tesseract.js';
@@ -429,21 +429,29 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     };
 
     try {
-      // 1. Salva na base de dados resiliente (LocalStorage + Supabase sync)
+      // 1. Salva na base de dados resiliente com prevenção de duplicidade
       const currentMembers = await db.getMembers(currentOrgId);
-      await db.saveMembers([cleanMember, ...currentMembers], currentOrgId);
+      const cleanPhoneDigits = cleanPhone(cleanMember.phone);
+      const cleanNormName = normalizeName(cleanMember.name);
 
-      // 2. Se houver conexão com o Supabase, tenta o insert direto também
-      if (supabase) {
-        try {
-          const { error } = await supabase.from('members').insert([cleanMember]);
-          if (error) {
-            console.warn('Aviso Supabase insert direto:', error.message);
-          }
-        } catch (err) {
-          console.warn('Exceção Supabase:', err);
-        }
+      const existingIndex = currentMembers.findIndex(m => {
+        const p = cleanPhone(m.phone);
+        const n = normalizeName(m.name);
+        if (cleanPhoneDigits && cleanPhoneDigits.length >= 8 && p === cleanPhoneDigits) return true;
+        if (cleanNormName && cleanNormName.length >= 2 && n === cleanNormName) return true;
+        return false;
+      });
+
+      let updatedMembers: Member[];
+      if (existingIndex >= 0) {
+        const existing = currentMembers[existingIndex];
+        const merged: Member = { ...existing, ...cleanMember, id: existing.id };
+        updatedMembers = currentMembers.map((m, i) => i === existingIndex ? merged : m);
+      } else {
+        updatedMembers = [cleanMember, ...currentMembers];
       }
+
+      await db.saveMembers(updatedMembers, currentOrgId);
 
       // Notifica abas/janelas abertas da aplicação
       window.dispatchEvent(new Event('storage'));

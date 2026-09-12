@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 import { Member } from '../types';
+import { normalizeName, cleanPhone, deduplicateMemberList } from '../lib/db';
 
 export function useExcelTools(
   members: Member[],
@@ -12,7 +12,6 @@ export function useExcelTools(
 ) {
   const [isExporting, setIsExporting] = useState(false);
 
-  // ... (handleImportExcel permanece igual)
   const handleImportExcel = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -28,36 +27,94 @@ export function useExcelTools(
 
         let nameCol = -1;
         let phoneCol = -1;
+        let voterCol = -1;
+        let emailCol = -1;
         for (let i = 0; i < Math.min(rows.length, 5); i++) {
           rows[i].forEach((cell, idx) => {
             const val = cell?.toString().toLowerCase() || "";
             if (nameCol === -1 && (val.includes("nome") || val.includes("eleitor") || (val.length > 5 && isNaN(Number(val))))) nameCol = idx;
             if (phoneCol === -1 && (val.includes("tel") || val.includes("fone") || val.includes("cel") || val.includes("zap") || val.includes("whatsapp"))) phoneCol = idx;
+            if (voterCol === -1 && (val.includes("titulo") || val.includes("título") || val.includes("voter"))) voterCol = idx;
+            if (emailCol === -1 && (val.includes("email") || val.includes("e-mail"))) emailCol = idx;
           });
         }
         if (nameCol === -1) nameCol = 0;
         if (phoneCol === -1) phoneCol = 1;
 
-        const importedData: Member[] = rows.map((row) => {
-          if (!row || row.length === 0) return null;
-          const val = row[nameCol]?.toString().toLowerCase() || "";
-          if (val.includes("relatório") || val.includes("total") || val.length < 2) return null;
-          if (val === "nome completo" || val === "nome") return null;
-          return {
+        const seenExistingPhones = new Set<string>();
+        const seenExistingNames = new Set<string>();
+        const seenExistingVoters = new Set<string>();
+
+        members.forEach(m => {
+          const p = cleanPhone(m.phone);
+          const n = normalizeName(m.name);
+          const v = (m.voterId || '').trim();
+          if (p && p.length >= 8) seenExistingPhones.add(p);
+          if (n && n.length >= 2) seenExistingNames.add(n);
+          if (v && v.length >= 5) seenExistingVoters.add(v);
+        });
+
+        const newImported: Member[] = [];
+        let skippedDuplicates = 0;
+
+        for (const row of rows) {
+          if (!row || row.length === 0) continue;
+          const rawName = row[nameCol]?.toString().trim() || "";
+          const normName = normalizeName(rawName);
+          if (normName.includes("relatorio") || normName.includes("total") || normName.length < 2) continue;
+          if (normName === "nome completo" || normName === "nome") continue;
+
+          const rawPhone = phoneCol >= 0 ? (row[phoneCol]?.toString() || "") : "";
+          const phone = cleanPhone(rawPhone);
+          const voterId = voterCol >= 0 ? (row[voterCol]?.toString().trim() || "") : "";
+          const email = emailCol >= 0 ? (row[emailCol]?.toString().trim().toLowerCase() || "") : "";
+
+          // Checa duplicidade com existentes ou no mesmo lote
+          let isDup = false;
+          if (phone && phone.length >= 8) {
+            if (seenExistingPhones.has(phone)) isDup = true;
+          }
+          if (!isDup && normName && normName.length >= 2) {
+            if (seenExistingNames.has(normName)) isDup = true;
+          }
+          if (!isDup && voterId && voterId.length >= 5) {
+            if (seenExistingVoters.has(voterId)) isDup = true;
+          }
+
+          if (isDup) {
+            skippedDuplicates++;
+            continue;
+          }
+
+          if (phone && phone.length >= 8) seenExistingPhones.add(phone);
+          if (normName && normName.length >= 2) seenExistingNames.add(normName);
+          if (voterId && voterId.length >= 5) seenExistingVoters.add(voterId);
+
+          newImported.push({
             id: Math.random().toString(36).substring(2, 11),
-            name: row[nameCol]?.toString().trim() || "Sem Nome",
-            phone: row[phoneCol]?.toString().replace(/\D/g, '') || "",
-            email: "",
+            name: rawName,
+            phone: phone || rawPhone,
+            email: email,
+            voterId: voterId || undefined,
             gender: "Não Informado",
             createdAt: new Date().toISOString(),
-          };
-        }).filter((m): m is Member => m !== null);
-
-        if (importedData.length > 0) {
-          saveMembers([...importedData, ...members]);
-          showToast(`✅ ${importedData.length} registros importados!`);
+          });
         }
-      } catch (err) { console.error(err); }
+
+        if (newImported.length > 0) {
+          const combined = [...newImported, ...members];
+          const { deduplicated } = deduplicateMemberList(combined);
+          saveMembers(deduplicated);
+          showToast(`✅ ${newImported.length} registros importados! (${skippedDuplicates} duplicatas evitadas)`);
+        } else if (skippedDuplicates > 0) {
+          showToast(`⚠️ Todos os ${skippedDuplicates} registros já constam na base de dados (nenhum duplicado inserido).`);
+        } else {
+          showToast('Nenhum registro válido encontrado no arquivo.');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao importar arquivo Excel.');
+      }
     };
     reader.readAsArrayBuffer(file);
     event.target.value = '';
