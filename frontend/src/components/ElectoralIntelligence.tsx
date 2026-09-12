@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Member, Coordinator, ElectoralResult } from '../types';
-import { Upload, Download, FileText, BarChart3, TrendingUp, Users, Target, ShieldCheck, RefreshCw, Link, FileSpreadsheet, MapPin, Globe, AlertTriangle, Eye, ShieldAlert, Hand } from 'lucide-react';
+import { Upload, Download, FileText, BarChart3, TrendingUp, Users, Target, ShieldCheck, RefreshCw, Link, FileSpreadsheet, MapPin, Globe, AlertTriangle, Eye, ShieldAlert, Hand, Search, MessageSquare, Phone, CheckCircle2, UserCheck, Filter, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import jsPDF from 'jspdf';
@@ -26,6 +26,11 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
   const [selectedCity, setSelectedCity] = useState<string>('ALL');
   const [selectedZone, setSelectedZone] = useState('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'map'>('table');
+
+  // Filtro de Cadastrados na Plataforma e Busca Rápida
+  const [platformFilter, setPlatformFilter] = useState<'ALL' | 'WITH_SUPPORTERS' | 'WITHOUT_SUPPORTERS'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSectionSupporters, setSelectedSectionSupporters] = useState<any | null>(null);
 
   // Drag-to-Scroll (Mãozinha para arrastar a tabela/página para qualquer lado)
   const [isDragging, setIsDragging] = useState(false);
@@ -354,7 +359,13 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
     }
   };
 
-  const comparisonData = useMemo(() => {
+  const cleanSecZoneNum = (val?: string | number) => {
+    if (val === undefined || val === null) return '';
+    const s = String(val).replace(/\D/g, '');
+    return s.replace(/^0+/, '') || '0';
+  };
+
+  const rawComparisonData = useMemo(() => {
     if (results.length === 0) return [];
     const sectionStats = results.reduce((acc, curr) => {
       const key = `${curr.zone}-${curr.section}`;
@@ -367,11 +378,16 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
       return acc;
     }, {} as Record<string, any>);
 
-    let filtered = (Object.values(sectionStats) as any[]).map(stat => {
-      const supportersInSec = members.filter(m =>
-        m.voterZone === stat.zone && m.voterSection === stat.section
-      ).length;
+    return (Object.values(sectionStats) as any[]).map(stat => {
+      const matchedMembers = members.filter(m => {
+        const z1 = cleanSecZoneNum(m.voterZone);
+        const z2 = cleanSecZoneNum(stat.zone);
+        const s1 = cleanSecZoneNum(m.voterSection);
+        const s2 = cleanSecZoneNum(stat.section);
+        return z1 && s1 && z1 === z2 && s1 === s2;
+      });
 
+      const supportersInSec = matchedMembers.length;
       const efficiency = supportersInSec > 0
         ? (stat.votes / supportersInSec) * 100
         : 0;
@@ -379,17 +395,51 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
       return {
         ...stat,
         supporters: supportersInSec,
+        supportersList: matchedMembers,
         efficiency: efficiency.toFixed(2),
         potential: Math.max(0, (stat.aptVoters || 0) - stat.votes - (stat.blankVotes || 0) - (stat.nullVotes || 0)),
       };
     });
+  }, [results, members, selectedUF, activeStateInfo]);
+
+  const sectionsWithSupportersCount = useMemo(() => {
+    return rawComparisonData.filter(r => r.supporters > 0).length;
+  }, [rawComparisonData]);
+
+  const sectionsWithoutSupportersCount = useMemo(() => {
+    return rawComparisonData.filter(r => r.supporters === 0).length;
+  }, [rawComparisonData]);
+
+  const comparisonData = useMemo(() => {
+    let filtered = rawComparisonData;
 
     if (selectedZone !== 'ALL') {
       filtered = filtered.filter(f => f.zone === selectedZone);
     }
 
+    if (platformFilter === 'WITH_SUPPORTERS') {
+      filtered = filtered.filter(f => f.supporters > 0);
+    } else if (platformFilter === 'WITHOUT_SUPPORTERS') {
+      filtered = filtered.filter(f => f.supporters === 0);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(f => 
+        f.zone?.toString().includes(q) || 
+        f.section?.toString().includes(q) || 
+        (f.municipality && f.municipality.toLowerCase().includes(q)) ||
+        f.supportersList?.some((m: Member) => 
+          m.name?.toLowerCase().includes(q) ||
+          m.phone?.includes(q) ||
+          m.neighborhood?.toLowerCase().includes(q) ||
+          m.voterId?.includes(q)
+        )
+      );
+    }
+
     return filtered.sort((a, b) => b.votes - a.votes);
-  }, [results, members, selectedZone, selectedUF, activeStateInfo]);
+  }, [rawComparisonData, selectedZone, platformFilter, searchQuery]);
 
   const totalVotes = results.reduce((sum, r) => sum + r.votes, 0);
   const totalSupporters = members.length;
@@ -684,14 +734,99 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
       </div>
       {viewMode === 'table' ? (
         <div className="bg-white shadow-xl border-t-4 border-gov-blue overflow-hidden rounded-none">
-          <div className="p-4 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2 rounded-none">
-            <div className="flex items-center gap-3">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 rounded-none">
+            <div className="flex flex-wrap items-center gap-3">
               <h3 className="font-black text-gov-blue uppercase text-xs">Desempenho por Seção Eleitoral</h3>
               <span className="text-[8px] font-black uppercase text-gov-blue bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Hand className="w-2.5 h-2.5 text-gov-blue" /> Clique e arraste para navegar
               </span>
+              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tight bg-white border border-slate-200 px-2 py-1 rounded-lg">
+                Exibindo <b className="text-gov-blue">{comparisonData.length}</b> de <b className="text-gray-700">{rawComparisonData.length}</b> seções
+              </span>
             </div>
-            <span className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter bg-orange-50 px-2 py-1 rounded-xl">Dados Comparativos: Base vs Urna</span>
+
+            {/* BARRA DE FILTRO E BUSCA: QUEM ESTÁ CADASTRADO NA PLATAFORMA */}
+            <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+              {/* Seletor do Filtro da Plataforma */}
+              <div className="flex items-center bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 shadow-sm text-xs">
+                <Filter className="w-3.5 h-3.5 text-gov-blue mr-2 shrink-0" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase mr-1.5 hidden sm:inline">Cadastrados:</span>
+                <select
+                  value={platformFilter}
+                  onChange={(e) => setPlatformFilter(e.target.value as any)}
+                  className="bg-transparent font-black text-slate-800 text-[11px] focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL">🌐 Todas as Seções ({rawComparisonData.length})</option>
+                  <option value="WITH_SUPPORTERS">✅ Com Cadastrados na Plataforma ({sectionsWithSupportersCount})</option>
+                  <option value="WITHOUT_SUPPORTERS">⭕ Sem Cadastrados na Plataforma ({sectionsWithoutSupportersCount})</option>
+                </select>
+              </div>
+
+              {/* Input de Busca Rápida */}
+              <div className="relative flex items-center flex-1 md:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Buscar seção, zona, bairro, eleitor..."
+                  className="w-full bg-white border border-slate-300 rounded-xl pl-8 pr-7 py-1.5 text-[11px] font-medium placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-gov-blue/20 focus:border-gov-blue shadow-sm"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 text-slate-400 hover:text-slate-600 p-0.5"
+                    title="Limpar busca"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Atalhos Rápidos tipo Pílulas */}
+          <div className="px-4 py-2 bg-slate-100/70 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-slate-500 uppercase text-[9px] mr-1">Filtro Rápido:</span>
+              <button
+                onClick={() => setPlatformFilter('ALL')}
+                className={`px-2.5 py-1 rounded-lg font-black transition-all ${
+                  platformFilter === 'ALL'
+                    ? 'bg-gov-blue text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                Todas ({rawComparisonData.length})
+              </button>
+              <button
+                onClick={() => setPlatformFilter('WITH_SUPPORTERS')}
+                className={`px-2.5 py-1 rounded-lg font-black flex items-center gap-1 transition-all ${
+                  platformFilter === 'WITH_SUPPORTERS'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200'
+                }`}
+              >
+                <UserCheck className="w-3 h-3" />
+                Com Cadastrados ({sectionsWithSupportersCount})
+              </button>
+              <button
+                onClick={() => setPlatformFilter('WITHOUT_SUPPORTERS')}
+                className={`px-2.5 py-1 rounded-lg font-black flex items-center gap-1 transition-all ${
+                  platformFilter === 'WITHOUT_SUPPORTERS'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'
+                }`}
+              >
+                <span>Sem Cadastrados ({sectionsWithoutSupportersCount})</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-bold text-orange-600 uppercase tracking-tighter bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-lg">
+                💡 Clique no número de apoiadores para ver quem são e abrir WhatsApp
+              </span>
+            </div>
           </div>
           <div 
             ref={tableContainerRef}
@@ -734,7 +869,29 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
                       <td className="p-3 text-[11px] font-black text-gov-blue">{row.zone}</td>
                       <td className="p-3 text-[11px] font-black text-gov-blue">{row.section}</td>
                       <td className="p-3 text-[11px] font-bold text-gray-500">{row.aptVoters?.toLocaleString('pt-BR') ?? '-'}</td>
-                      <td className="p-3 text-[11px] font-bold text-gray-600">{row.supporters}</td>
+                      <td className="p-3 text-[11px] font-bold text-gray-600">
+                        {row.supporters > 0 ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSectionSupporters(row);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-gov-blue text-gov-blue hover:text-white border border-blue-200 hover:border-gov-blue rounded-lg text-[10px] font-black transition-all shadow-sm group cursor-pointer"
+                            title="Clique para ver quem está cadastrado nesta seção"
+                          >
+                            <Users className="w-3 h-3 text-gov-blue group-hover:text-white" />
+                            <span>{row.supporters}</span>
+                            <span className="text-[8px] uppercase tracking-wider bg-gov-blue/10 group-hover:bg-white/20 px-1 py-0.2 rounded font-black">
+                              Ver Lista 👁
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center text-gray-400 text-[10px] font-bold px-2 py-0.5 bg-gray-100 rounded">
+                            0
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3 text-[11px] font-bold text-green-600">{row.votes.toLocaleString('pt-BR')}</td>
                       <td className="p-3 text-[11px] font-bold text-gray-400">{row.blankVotes ?? 0}</td>
                       <td className="p-3 text-[11px] font-bold text-red-400">{row.nullVotes ?? 0}</td>
@@ -1081,6 +1238,163 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
 
         </div>
       )}
+      {/* MODAL DE ELEITORES CADASTRADOS NA SEÇÃO */}
+      <AnimatePresence>
+        {selectedSectionSupporters && (
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setSelectedSectionSupporters(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              {/* Header do Modal */}
+              <div className="bg-gov-blue p-5 text-white flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-gov-yellow text-slate-900 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full">
+                      Cadastrados na Plataforma
+                    </span>
+                    <span className="text-blue-200 text-xs font-semibold">
+                      {selectedSectionSupporters.municipality}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-black mt-1 text-white">
+                    Zona {selectedSectionSupporters.zone} • Seção {selectedSectionSupporters.section}
+                  </h3>
+                  <p className="text-xs text-blue-100 mt-0.5">
+                    {selectedSectionSupporters.supporters} eleitor(es) cadastrado(s) nesta seção eleitoral
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedSectionSupporters(null)}
+                  className="p-1.5 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Métricas Rápidas da Seção */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 border-b border-slate-200 text-center">
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block">Cadastrados</span>
+                  <span className="text-lg font-black text-gov-blue">{selectedSectionSupporters.supporters}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block">Votos de Urna</span>
+                  <span className="text-lg font-black text-emerald-600">{selectedSectionSupporters.votes?.toLocaleString('pt-BR')}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block">Eleitores Aptos</span>
+                  <span className="text-lg font-black text-slate-700">{selectedSectionSupporters.aptVoters?.toLocaleString('pt-BR') || '-'}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-[9px] font-black uppercase text-slate-400 block">Votos / Apoiador</span>
+                  <span className="text-lg font-black text-indigo-600">
+                    {selectedSectionSupporters.supporters > 0 ? `${(selectedSectionSupporters.votes / selectedSectionSupporters.supporters).toFixed(2)}x` : '-'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Lista dos Eleitores / Apoiadores */}
+              <div className="p-4 overflow-y-auto flex-1 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-gov-blue" />
+                    Eleitores Registrados ({selectedSectionSupporters.supportersList?.length || 0})
+                  </h4>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    Clique no botão do WhatsApp para contato direto
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {selectedSectionSupporters.supportersList && selectedSectionSupporters.supportersList.length > 0 ? (
+                    selectedSectionSupporters.supportersList.map((member: Member) => {
+                      const cleanPhone = (member.phone || '').replace(/\D/g, '');
+                      const waUrl = cleanPhone ? `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(`Olá, ${member.name}! Tudo bem? Entramos em contato da equipe de campanha.`)}` : '';
+                      const coord = coordinators?.find(c => c.id === member.coordinatorId);
+
+                      return (
+                        <div
+                          key={member.id}
+                          className="bg-white p-3.5 rounded-xl border border-slate-200 hover:border-gov-blue transition-all shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-slate-900 text-sm">{member.name}</span>
+                              {member.neighborhood && (
+                                <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                  {member.neighborhood}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                              {member.phone && (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="w-3 h-3 text-slate-400" />
+                                  {member.phone}
+                                </span>
+                              )}
+                              {member.voterId && (
+                                <span className="text-slate-400">
+                                  Título: <b className="text-slate-600">{member.voterId}</b>
+                                </span>
+                              )}
+                              {coord && (
+                                <span className="text-slate-400">
+                                  Coordenador: <b className="text-gov-blue">{coord.name}</b>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            {cleanPhone ? (
+                              <a
+                                href={waUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                WhatsApp
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">Sem WhatsApp</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center py-8 text-slate-400">
+                      <Users className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                      <p className="text-xs font-bold">Nenhum eleitor detalhado encontrado para esta seção.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Rodapé do Modal */}
+              <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSectionSupporters(null)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
