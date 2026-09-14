@@ -154,8 +154,9 @@ app.post('/api/deduplicate', async (req, res) => {
 
         let isDup = false;
 
-        if (phone && phone.length >= 8) {
-          if (seenPhone.has(phone)) {
+        // O número de telefone agora pode ser repetido (deduplicação apenas por Título ou Nome)
+        if (voter && voter.length >= 5) {
+          if (seenVoter.has(voter)) {
             isDup = true;
           }
         }
@@ -166,16 +167,9 @@ app.post('/api/deduplicate', async (req, res) => {
           }
         }
 
-        if (!isDup && voter && voter.length >= 5) {
-          if (seenVoter.has(voter)) {
-            isDup = true;
-          }
-        }
-
         if (isDup) {
           toDeleteIds.push(m.id);
         } else {
-          if (phone && phone.length >= 8) seenPhone.set(phone, m.id);
           if (name && name.length >= 2) seenName.set(name, m.id);
           if (voter && voter.length >= 5) seenVoter.set(voter, m.id);
         }

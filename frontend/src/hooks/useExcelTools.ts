@@ -69,16 +69,13 @@ export function useExcelTools(
           const voterId = voterCol >= 0 ? (row[voterCol]?.toString().trim() || "") : "";
           const email = emailCol >= 0 ? (row[emailCol]?.toString().trim().toLowerCase() || "") : "";
 
-          // Checa duplicidade com existentes ou no mesmo lote
+          // Checa duplicidade com existentes ou no mesmo lote (telefone pode ser repetido)
           let isDup = false;
-          if (phone && phone.length >= 8) {
-            if (seenExistingPhones.has(phone)) isDup = true;
+          if (voterId && voterId.length >= 5) {
+            if (seenExistingVoters.has(voterId)) isDup = true;
           }
           if (!isDup && normName && normName.length >= 2) {
             if (seenExistingNames.has(normName)) isDup = true;
-          }
-          if (!isDup && voterId && voterId.length >= 5) {
-            if (seenExistingVoters.has(voterId)) isDup = true;
           }
 
           if (isDup) {
@@ -86,7 +83,6 @@ export function useExcelTools(
             continue;
           }
 
-          if (phone && phone.length >= 8) seenExistingPhones.add(phone);
           if (normName && normName.length >= 2) seenExistingNames.add(normName);
           if (voterId && voterId.length >= 5) seenExistingVoters.add(voterId);
 

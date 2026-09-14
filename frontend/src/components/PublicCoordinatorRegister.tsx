@@ -137,16 +137,14 @@ export default function PublicCoordinatorRegister({ onBack, onLoginSuccess }: Pu
     try {
       const currentOrgId = org?.id || new URLSearchParams(window.location.search).get('org') || undefined;
 
-      // 1. Verificar se o e-mail ou WhatsApp já está cadastrado
+      // 1. Verificar se o e-mail já está cadastrado (WhatsApp/Telefone pode ser repetido)
       const existingCoords = await db.getCoordinators(currentOrgId);
-      const cleanWhatsappDigits = formData.whatsapp.replace(/\D/g, '');
-      const isDuplicate = existingCoords.some(
-        c => (c.email && c.email.trim().toLowerCase() === cleanEmail) ||
-             (cleanWhatsappDigits && cleanWhatsappDigits.length >= 8 && (c as any).whatsapp?.replace(/\D/g, '') === cleanWhatsappDigits)
+      const isDuplicate = cleanEmail && existingCoords.some(
+        c => c.email && c.email.trim().toLowerCase() === cleanEmail
       );
 
       if (isDuplicate) {
-        setError('Este e-mail ou WhatsApp já está cadastrado como coordenador. Faça login ou utilize outros dados.');
+        setError('Este e-mail já está cadastrado como coordenador. Faça login ou utilize outro e-mail.');
         setLoading(false);
         return;
       }

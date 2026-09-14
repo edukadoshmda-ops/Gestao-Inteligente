@@ -431,13 +431,14 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     try {
       // 1. Salva na base de dados resiliente com prevenção de duplicidade
       const currentMembers = await db.getMembers(currentOrgId);
-      const cleanPhoneDigits = cleanPhone(cleanMember.phone);
       const cleanNormName = normalizeName(cleanMember.name);
+      const cleanVoterId = (cleanMember.voterId || '').trim();
 
       const existingIndex = currentMembers.findIndex(m => {
-        const p = cleanPhone(m.phone);
         const n = normalizeName(m.name);
-        if (cleanPhoneDigits && cleanPhoneDigits.length >= 8 && p === cleanPhoneDigits) return true;
+        const v = (m.voterId || '').trim();
+        // Telefone agora pode ser repetido; atualiza apenas se Título idêntico ou Nome idêntico
+        if (cleanVoterId && cleanVoterId.length >= 5 && v === cleanVoterId) return true;
         if (cleanNormName && cleanNormName.length >= 2 && n === cleanNormName) return true;
         return false;
       });

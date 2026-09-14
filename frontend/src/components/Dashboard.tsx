@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { Member, Coordinator } from '../types';
 import MemberList from './MemberList';
 import MemberForm from './MemberForm';
@@ -9,7 +10,7 @@ import Sidebar from './Sidebar';
 import Toast from './Toast';
 import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, normalizeName, cleanPhone } from '../lib/db';
+import { db, normalizeName, cleanPhone, deduplicateMemberList } from '../lib/db';
 import { supabase, supabaseAdmin } from '../lib/supabase';
 import AnalyticsTab from './AnalyticsTab';
 import { useExcelTools } from '../hooks/useExcelTools';
@@ -72,6 +73,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const [copySuccess, setCopySuccess] = useState(false);
   const [copyCoordSuccess, setCopyCoordSuccess] = useState(false);
   const [systemNotice, setSystemNotice] = useState<{ title: string, msg: string } | null>(null);
+  const coordExcelInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingCoordExcel, setIsImportingCoordExcel] = useState(false);
 
   const isSuperAdmin = username.toLowerCase().includes('edukadoshmda') || 
                        username.toLowerCase() === 'admin' || 
@@ -129,45 +132,170 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     return 'Gestão Inteligente';
   }, [organization]);
 
-  // Função para formatar automaticamente para o padrão internacional do WhatsApp (55...)
-  const formatWhatsAppNumber = (phone: string) => {
-    const cleaned = phone.replace(/\D/g, '');
+  // Função utilitária resiliente para cópia na área de transferência (Clipboard API + Fallback)
+  const copyTextToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.warn('navigator.clipboard falhou, tentando fallback', err);
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return success;
+    } catch (err) {
+      console.error('Fallback execCommand falhou', err);
+      return false;
+    }
+  };
+
+  // Função para formatar com segurança para o padrão internacional do WhatsApp (55...)
+  const formatWhatsAppNumber = (phone?: string | null) => {
+    if (!phone) return '';
+    const cleaned = String(phone).replace(/\D/g, '');
+    if (!cleaned) return '';
     // Se já começar com 55 e tiver tamanho compatível (12 ou 13 dígitos)
     if (cleaned.startsWith('55') && (cleaned.length === 12 || cleaned.length === 13)) {
       return cleaned;
     }
-    // Se tiver 10 ou 11 dígitos (DDD + Número), assume que é Brasil e adiciona 55
+    // Se tiver 10 ou 11 dígitos (DDD + Número), assume Brasil e adiciona 55
     if (cleaned.length === 10 || cleaned.length === 11) {
       return `55${cleaned}`;
     }
-    return cleaned;
+    // Se tiver 8 ou 9 dígitos (sem DDD)
+    if (cleaned.length >= 8) {
+      return `55${cleaned}`;
+    }
+    return '';
   };
 
-  const handleBulkWhatsApp = () => {
-    // Busca o template da organização ou usa o padrão
-    const template = organization?.welcome_template || `Olá {nome_eleitor}! Gostaria de conversar sobre a campanha ${organization?.candidate_name || 'Gestão Inteligente'}.`;
-
+  const handleBulkWhatsApp = async (copyMode: 'newline' | 'comma' = 'newline') => {
     const formattedPhones = filteredMembers
-      .map(m => formatWhatsAppNumber(m.phone))
-      .filter(p => p.startsWith('55') && p.length >= 12);
+      .map(m => formatWhatsAppNumber(m?.phone))
+      .filter(p => Boolean(p) && p.length >= 10);
 
-    if (formattedPhones.length === 0) {
-      showToast("Nenhum contato válido encontrado.");
+    // Garante números únicos para não duplicar no disparo
+    const uniquePhones = Array.from(new Set(formattedPhones));
+
+    if (uniquePhones.length === 0) {
+      showToast("⚠️ Nenhum número de WhatsApp válido encontrado nos eleitores filtrados.");
       return;
     }
 
-    navigator.clipboard.writeText(formattedPhones.join('\n'));
-    showToast(`${formattedPhones.length} números formatados (55...) copiados!`);
+    const textToCopy = copyMode === 'comma' ? uniquePhones.join(', ') : uniquePhones.join('\n');
+    const copied = await copyTextToClipboard(textToCopy);
 
-    if (formattedPhones.length === 1) {
-      const firstMember = filteredMembers[0];
-      const personalizedMsg = template.replace(/{nome_eleitor}/g, firstMember.name);
-      const url = `https://wa.me/${formattedPhones[0]}?text=${encodeURIComponent(personalizedMsg)}`;
-      window.open(url, '_blank');
+    if (copied) {
+      showToast(`✅ ${uniquePhones.length} números de WhatsApp copiados com sucesso!`);
     } else {
-      alert(`Pronto! Copiamos ${formattedPhones.length} números no padrão internacional (55...) e sua mensagem de boas-vindas. \n\n1. Vá ao WhatsApp\n2. Crie uma Lista de Transmissão\n3. Cole os números.`);
+      showToast(`⚠️ Não foi possível copiar para a área de transferência.`);
+    }
+
+    if (uniquePhones.length === 1) {
+      const firstMember = filteredMembers.find(m => formatWhatsAppNumber(m?.phone) === uniquePhones[0]);
+      const template = bulkMessage?.trim() || organization?.welcome_template || `Olá {nome_eleitor}! Gostaria de conversar sobre a campanha ${organization?.candidate_name || 'Gestão Inteligente'}.`;
+      const personalizedMsg = template.replace(/{nome_eleitor}/g, firstMember?.name || '');
+      const url = `https://wa.me/${uniquePhones[0]}?text=${encodeURIComponent(personalizedMsg)}`;
+      window.open(url, '_blank');
     }
     setShowBulkWhatsAppModal(false);
+  };
+
+  const handleImportExcelForCoordinator = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+    coordinator: Coordinator
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImportingCoordExcel(true);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+      if (!rows || rows.length < 1) {
+        showToast("Arquivo vazio ou sem dados legíveis.");
+        return;
+      }
+
+      let nameCol = -1;
+      let phoneCol = -1;
+      let voterCol = -1;
+      let emailCol = -1;
+      let neighborhoodCol = -1;
+
+      for (let i = 0; i < Math.min(rows.length, 5); i++) {
+        rows[i].forEach((cell, idx) => {
+          const val = cell?.toString().toLowerCase() || "";
+          if (nameCol === -1 && (val.includes("nome") || val.includes("eleitor") || (val.length > 5 && isNaN(Number(val))))) nameCol = idx;
+          if (phoneCol === -1 && (val.includes("tel") || val.includes("fone") || val.includes("cel") || val.includes("zap") || val.includes("whatsapp"))) phoneCol = idx;
+          if (voterCol === -1 && (val.includes("titulo") || val.includes("título") || val.includes("voter"))) voterCol = idx;
+          if (emailCol === -1 && (val.includes("email") || val.includes("e-mail"))) emailCol = idx;
+          if (neighborhoodCol === -1 && (val.includes("bairro") || val.includes("regiao") || val.includes("região"))) neighborhoodCol = idx;
+        });
+      }
+      if (nameCol === -1) nameCol = 0;
+      if (phoneCol === -1) phoneCol = 1;
+
+      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+      const newImported: Member[] = [];
+
+      for (const row of rows) {
+        if (!row || row.length === 0) continue;
+        const rawName = row[nameCol]?.toString().trim() || "";
+        const normName = normalizeName(rawName);
+        if (normName.includes("relatorio") || normName.includes("total") || normName.length < 2) continue;
+        if (normName === "nome completo" || normName === "nome") continue;
+
+        const rawPhone = phoneCol >= 0 ? (row[phoneCol]?.toString() || "") : "";
+        const phone = cleanPhone(rawPhone);
+        const voterId = voterCol >= 0 ? (row[voterCol]?.toString().trim() || "") : "";
+        const email = emailCol >= 0 ? (row[emailCol]?.toString().trim().toLowerCase() || "") : "";
+        const neighborhood = neighborhoodCol >= 0 ? (row[neighborhoodCol]?.toString().trim() || "") : "";
+
+        newImported.push({
+          id: Math.random().toString(36).substring(2, 11),
+          name: rawName,
+          phone: phone || rawPhone,
+          email: email,
+          voterId: voterId || undefined,
+          neighborhood: neighborhood || coordinator.neighborhood || '',
+          gender: "Não Informado",
+          coordinatorId: coordinator.id,
+          org_id: coordinator.org_id || currentOrgId,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      if (newImported.length > 0) {
+        const combined = [...newImported, ...members];
+        const { deduplicated } = deduplicateMemberList(combined);
+        await saveMembers(deduplicated);
+        showToast(`✅ ${newImported.length} eleitores importados e vinculados a ${coordinator.name}!`);
+      } else {
+        showToast('Nenhum eleitor válido encontrado na planilha.');
+      }
+    } catch (err) {
+      console.error('Erro na importação para coordenador:', err);
+      showToast('Erro ao processar planilha Excel.');
+    } finally {
+      setIsImportingCoordExcel(false);
+      if (event.target) event.target.value = '';
+    }
   };
 
   const handleExportVCF = () => {
@@ -467,21 +595,9 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       finalMemberData.org_id = currentOrgId;
     }
 
-    // Validação de Duplicidade Rigorosa (Telefone, Nome e Título de Eleitor)
-    const newPhone = cleanPhone(finalMemberData.phone);
+    // Validação de Duplicidade (Nome e Título de Eleitor — Telefone agora é permitido ser repetido)
     const newName = normalizeName(finalMemberData.name);
     const newVoter = (finalMemberData.voterId || '').trim();
-
-    if (newPhone && newPhone.length >= 8) {
-      const dupPhone = members.find(m =>
-        m.id !== selectedMember?.id &&
-        cleanPhone(m.phone) === newPhone
-      );
-      if (dupPhone) {
-        alert(`⚠️ ATENÇÃO: Este Telefone/WhatsApp já está cadastrado para o eleitor "${dupPhone.name}"!`);
-        return;
-      }
-    }
 
     if (newName && newName.length >= 2) {
       const dupName = members.find(m =>
@@ -1154,14 +1270,32 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                             <p className="text-[10px] text-blue-200 uppercase font-bold tracking-widest">Mostrando apenas eleitores vinculados a este coordenador</p>
                           </div>
                         </div>
-                        <button
-                          onClick={() => exportCoordinatorExcel(activeCoordinator, members, organization?.candidate_name, showToast)}
-                          className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0"
-                          title={`Baixar planilha Excel com os apoiadores de ${activeCoordinator.name}`}
-                        >
-                          <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-                          Baixar Planilha (.xlsx)
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="file"
+                            ref={coordExcelInputRef}
+                            accept=".xlsx,.xls,.csv"
+                            onChange={(e) => handleImportExcelForCoordinator(e, activeCoordinator)}
+                            className="hidden"
+                          />
+                          <button
+                            onClick={() => coordExcelInputRef.current?.click()}
+                            disabled={isImportingCoordExcel}
+                            className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0 border border-blue-400/30"
+                            title={`Fazer upload de planilha Excel de apoiadores para ${activeCoordinator.name}`}
+                          >
+                            <Upload className="w-4 h-4 text-blue-200" />
+                            {isImportingCoordExcel ? 'Subindo...' : 'Subir Planilha (.xlsx)'}
+                          </button>
+                          <button
+                            onClick={() => exportCoordinatorExcel(activeCoordinator, members, organization?.candidate_name, showToast)}
+                            className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0"
+                            title={`Baixar planilha Excel com os apoiadores de ${activeCoordinator.name}`}
+                          >
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+                            Baixar Planilha (.xlsx)
+                          </button>
+                        </div>
                       </div>
                     )}
                     <MemberList
@@ -1370,21 +1504,50 @@ export default function Dashboard({ username, organization, profile, onLogout, o
               <h3 className="text-xl font-black text-gov-blue uppercase mb-4 flex items-center gap-2">
                 <MessageSquare className="w-6 h-6 text-green-500" /> Transmissão WhatsApp
               </h3>
-              <p className="text-[10px] text-gray-500 mb-4 font-bold uppercase tracking-widest">
-                Enviando para os {filteredMembers.length} eleitores filtrados na tela.
-              </p>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center text-[10px] text-gray-500 mb-4 font-bold uppercase tracking-widest gap-1">
+                <span>Enviando para os {filteredMembers.length} eleitores filtrados na tela.</span>
+                <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 self-start sm:self-auto font-black">
+                  {filteredMembers.filter(m => formatWhatsAppNumber(m?.phone).length >= 10).length} com WhatsApp
+                </span>
+              </div>
               <textarea
                 value={bulkMessage}
                 onChange={(e) => setBulkMessage(e.target.value)}
-                className="w-full h-32 p-4 bg-gray-50 border-2 border-gray-100 outline-none focus:border-gov-blue font-medium text-sm mb-6 resize-none rounded-2xl"
+                className="w-full h-28 p-4 bg-gray-50 border-2 border-gray-100 outline-none focus:border-gov-blue font-medium text-sm mb-4 resize-none rounded-2xl"
                 placeholder="Escreva sua mensagem aqui..."
               />
-              <button
-                onClick={handleBulkWhatsApp}
-                className="w-full py-4 bg-green-500 text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-green-600 transition-all shadow-lg rounded-2xl"
-              >
-                <Copy className="w-4 h-4" /> Copiar Números e Preparar Envio
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleBulkWhatsApp('newline')}
+                  className="w-full py-4 bg-green-500 text-white font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-green-600 active:bg-green-700 transition-all shadow-lg rounded-2xl"
+                >
+                  <Copy className="w-4 h-4" /> Copiar Números e Preparar Envio
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleBulkWhatsApp('comma')}
+                    className="flex-1 py-2.5 bg-gray-100 text-gov-blue font-black uppercase text-[9px] flex items-center justify-center gap-1.5 hover:bg-gray-200 transition-all rounded-xl border border-gray-200"
+                    title="Copiar números separados por vírgula (55..., 55...)"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-gray-500" /> Copiar c/ Vírgula
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const msg = bulkMessage?.trim() || organization?.welcome_template || '';
+                      if (!msg) {
+                        showToast('Digite uma mensagem antes de copiar.');
+                        return;
+                      }
+                      const ok = await copyTextToClipboard(msg);
+                      if (ok) showToast('✅ Texto da mensagem copiado!');
+                    }}
+                    className="flex-1 py-2.5 bg-blue-50 text-blue-800 font-black uppercase text-[9px] flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-all rounded-xl border border-blue-200"
+                    title="Copiar texto digitado na mensagem"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" /> Copiar Mensagem
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

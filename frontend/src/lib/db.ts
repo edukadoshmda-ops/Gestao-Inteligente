@@ -99,23 +99,20 @@ export function deduplicateMemberList(members: Member[]): { deduplicated: Member
 
     let isDup = false;
 
-    if (phone && phone.length >= 8) {
-      if (seenPhone.has(phone)) isDup = true;
+    // Nota: O número de telefone agora pode ser repetido (ex: familiares ou contatos compartilhados).
+    // Deduplicação é feita por Título de Eleitor ou Nome Normalizado idêntico.
+    if (voter && voter.length >= 5) {
+      if (seenVoter.has(voter)) isDup = true;
     }
 
     if (!isDup && name && name.length >= 2) {
       if (seenName.has(name)) isDup = true;
     }
 
-    if (!isDup && voter && voter.length >= 5) {
-      if (seenVoter.has(voter)) isDup = true;
-    }
-
     if (isDup) {
       removedIds.push(String(m.id));
     } else {
       deduplicated.push(m);
-      if (phone && phone.length >= 8) seenPhone.set(phone, String(m.id));
       if (name && name.length >= 2) seenName.set(name, String(m.id));
       if (voter && voter.length >= 5) seenVoter.set(voter, String(m.id));
     }
