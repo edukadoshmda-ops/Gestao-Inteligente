@@ -65,10 +65,12 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
+      port: 5173,
+      host: '0.0.0.0',
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: {
         '/.netlify/functions': {
-          target: 'http://localhost:9999',
+          target: 'http://localhost:8889',
           changeOrigin: true,
           secure: false
         }

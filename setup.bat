@@ -26,6 +26,6 @@ echo     OK - dependencias instaladas
 
 echo.
 echo [3/3] Iniciando servidor de desenvolvimento...
-echo     Acesse: http://localhost:3000
+echo     Acesse: http://localhost:5173
 echo.
 npm run dev --prefix frontend

@@ -44,6 +44,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const [isAddingCoordinator, setIsAddingCoordinator] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [coordinatorSearch, setCoordinatorSearch] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [selectedCoordinator, setSelectedCoordinator] = useState<Coordinator | null>(null);
   const [activeCoordinator, setActiveCoordinator] = useState<Coordinator | null>(null);
@@ -1217,47 +1218,96 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
                 {activeTab === 'coordinators' ? (
                   <div className="space-y-6">
-                    <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 rounded-2xl">
-                      <h3 className="text-xl font-black text-gov-blue uppercase">Gestão de Coordenadores</h3>
-                      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <button
-                          onClick={() => setShowCoordShareModal(true)}
-                          className="bg-green-600 text-white px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-green-700 transition-all flex-shrink-0 shadow-sm"
-                          title="Gerar e compartilhar link para cadastro de novos coordenadores"
-                        >
-                          <Share2 className="w-4 h-4 text-green-200" /> Link de Cadastro
-                        </button>
-                        {isCampaignAdmin && (
+                    <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md flex flex-col gap-4 rounded-2xl">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <h3 className="text-xl font-black text-gov-blue uppercase">Gestão de Coordenadores</h3>
+                        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                           <button
-                            onClick={handleClearCoordinators}
-                            className="bg-red-50 text-red-600 border border-red-200 px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-red-100 flex-shrink-0"
-                            title="Apagar Todos os Coordenadores"
+                            onClick={() => setShowCoordShareModal(true)}
+                            className="bg-green-600 text-white px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-green-700 transition-all flex-shrink-0 shadow-sm"
+                            title="Gerar e compartilhar link para cadastro de novos coordenadores"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Share2 className="w-4 h-4 text-green-200" /> Link de Cadastro
                           </button>
-                        )}
-                        {permissions.canCreateCoordinators && (
+                          {isCampaignAdmin && (
+                            <button
+                              onClick={handleClearCoordinators}
+                              className="bg-red-50 text-red-600 border border-red-200 px-4 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl hover:bg-red-100 flex-shrink-0"
+                              title="Apagar Todos os Coordenadores"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {permissions.canCreateCoordinators && (
+                            <button
+                              onClick={() => setIsAddingCoordinator(true)}
+                              className="bg-gov-blue text-white px-6 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl flex-shrink-0"
+                            >
+                              <Plus className="w-4 h-4" /> Novo Coordenador
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {/* Lupa de pesquisa de coordenadores */}
+                      <div className="relative w-full">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gov-blue/40 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={coordinatorSearch}
+                          onChange={(e) => setCoordinatorSearch(e.target.value)}
+                          placeholder="Pesquisar coordenador por nome, e-mail, bairro ou cidade..."
+                          className="w-full pl-10 pr-10 py-3 bg-gov-bg border border-gov-blue/15 rounded-xl text-sm font-medium text-gov-blue placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gov-blue/20 focus:border-gov-blue/30"
+                        />
+                        {coordinatorSearch && (
                           <button
-                            onClick={() => setIsAddingCoordinator(true)}
-                            className="bg-gov-blue text-white px-6 py-3 font-black uppercase text-[10px] flex items-center gap-2 rounded-2xl flex-shrink-0"
+                            onClick={() => setCoordinatorSearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-200 text-gray-400 hover:text-gov-blue"
+                            title="Limpar pesquisa"
                           >
-                            <Plus className="w-4 h-4" /> Novo Coordenador
+                            <X className="w-4 h-4" />
                           </button>
                         )}
                       </div>
+                      {coordinatorSearch.trim() && (
+                        <p className="text-[11px] font-bold text-gov-blue/60 uppercase tracking-widest">
+                          Mostrando coordenadores com “{coordinatorSearch.trim()}”
+                        </p>
+                      )}
                     </div>
-                    <CoordinatorList
-                      coordinators={coordinators}
-                      members={members}
-                      candidateName={organization?.candidate_name}
-                      onNotify={showToast}
-                      onEdit={(c) => { setSelectedCoordinator(c); setIsAddingCoordinator(true); }}
-                      onDelete={permissions.canDeleteCoordinators ? handleDeleteCoordinator : undefined}
-                      onSelect={(c) => {
-                        setActiveCoordinator(c);
-                        setActiveTab('list');
-                      }}
-                    />
+                    {(() => {
+                      const term = coordinatorSearch.toLowerCase().trim();
+                      const filteredCoordinators = !term ? coordinators : coordinators.filter(c =>
+                        (c.name && c.name.toLowerCase().includes(term)) ||
+                        (c.email && c.email.toLowerCase().includes(term)) ||
+                        (c.neighborhood && c.neighborhood.toLowerCase().includes(term)) ||
+                        (c.city && c.city.toLowerCase().includes(term)) ||
+                        ((c as any).whatsapp && String((c as any).whatsapp).includes(term))
+                      );
+                      if (term && filteredCoordinators.length === 0) {
+                        return (
+                          <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-gray-200">
+                            <Search className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                            <p className="text-sm font-black text-gray-500 uppercase">Nenhum coordenador encontrado</p>
+                            <p className="text-xs text-gray-400 mt-1">Tente outro nome, e-mail, bairro ou cidade</p>
+                            <button onClick={() => setCoordinatorSearch('')} className="mt-4 px-5 py-2 bg-gov-blue text-white rounded-xl text-xs font-black uppercase">Limpar filtro</button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <CoordinatorList
+                          coordinators={filteredCoordinators}
+                          members={members}
+                          candidateName={organization?.candidate_name}
+                          onNotify={showToast}
+                          onEdit={(c) => { setSelectedCoordinator(c); setIsAddingCoordinator(true); }}
+                          onDelete={permissions.canDeleteCoordinators ? handleDeleteCoordinator : undefined}
+                          onSelect={(c) => {
+                            setActiveCoordinator(c);
+                            setActiveTab('list');
+                          }}
+                        />
+                      );
+                    })()}
                   </div>
                 ) : activeTab === 'list' ? (
                   <div className="space-y-6">

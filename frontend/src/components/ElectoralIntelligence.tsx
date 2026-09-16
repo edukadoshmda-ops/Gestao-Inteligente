@@ -149,7 +149,7 @@ export default function ElectoralIntelligence({ members, coordinators = [], orga
       if (error) throw error;
 
       if (data && data.length > 0) {
-        const mapped: ElectoralResult[] = data.map(item => ({
+        const mapped: ElectoralResult[] = data.map((item: any) => ({
           id: item.id,
           city: item.city,
           zone: item.zone,
