@@ -115,7 +115,14 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
     };
   });
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    title: string;
+    content: string;
+    category: 'notice' | 'banner' | 'flyer' | 'project';
+    imageUrl: string;
+    fileUrl: string;
+    priority: 'info' | 'warning' | 'critical';
+  }>({
     title: '',
     content: '',
     category: 'project',
@@ -326,7 +333,10 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
         });
       }
 
-      let cat = categoryFilter === 'all' ? (isImage ? 'banner' : 'project') : categoryFilter;
+      let cat: Announcement['category'] = isImage ? 'banner' : 'project';
+      if (['notice', 'banner', 'flyer', 'project'].includes(categoryFilter)) {
+        cat = categoryFilter as Announcement['category'];
+      }
 
       const newMaterial: Announcement = {
         id: crypto.randomUUID(),

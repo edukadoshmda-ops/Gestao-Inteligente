@@ -6,6 +6,8 @@
 export interface Organization {
   id: string;
   candidate_name: string;
+  party_number?: string;
+  party?: string;
   subdomain?: string;
   asaas_customer_id?: string;
   subscription_status: 'active' | 'overdue' | 'pending' | 'trialing';

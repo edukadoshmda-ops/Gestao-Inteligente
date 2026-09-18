@@ -19,7 +19,8 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-type SortMode = 'date' | 'name' | 'coordinator';
+type SortMode = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc' | 'coordinator_first';
+type FilterType = 'all' | 'voters' | 'coordinators';
 
 interface MemberListProps {
   members: Member[];
@@ -30,6 +31,47 @@ interface MemberListProps {
   welcomeTemplate?: string;
   isCoordinatorView?: boolean;
 }
+
+const parseDateSafe = (dateStr?: string | null): number => {
+  if (!dateStr || typeof dateStr !== 'string') return 0;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return 0;
+
+  // Format DD/MM/YYYY or DD/MM/YYYY HH:mm:ss
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split(/[\s,T]+/);
+    const dateParts = parts[0].split('/');
+    if (dateParts.length === 3) {
+      const day = parseInt(dateParts[0], 10);
+      const month = parseInt(dateParts[1], 10) - 1;
+      const year = parseInt(dateParts[2], 10);
+      let hour = 0, min = 0, sec = 0;
+      if (parts[1]) {
+        const timeParts = parts[1].split(':');
+        hour = parseInt(timeParts[0] || '0', 10);
+        min = parseInt(timeParts[1] || '0', 10);
+        sec = parseInt(timeParts[2] || '0', 10);
+      }
+      const d = new Date(year, month, day, hour, min, sec);
+      const t = d.getTime();
+      return isNaN(t) ? 0 : t;
+    }
+  }
+
+  const parsed = Date.parse(trimmed);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+const formatDateSafe = (dateStr?: string | null): string => {
+  if (!dateStr) return 'N/A';
+  const time = parseDateSafe(dateStr);
+  if (!time) return dateStr.length <= 10 ? dateStr : 'N/A';
+  const d = new Date(time);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+};
 
 const formatPhone = (phone: string | null | undefined) => {
   if (!phone) return '';
@@ -73,7 +115,8 @@ export default function MemberList({
   const [startY, setStartY] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
-  const [sortMode, setSortMode] = useState<SortMode>('date');
+  const [filterType, setFilterType] = useState<FilterType>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('date_desc');
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // Estados de seleção para WhatsApp em massa
@@ -84,17 +127,44 @@ export default function MemberList({
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  const sortedMembers = useMemo(() => {
-    const copy = [...members];
-    if (sortMode === 'date') {
+  const coordCount = useMemo(() => members.filter(m => Boolean(m.isCoordinator)).length, [members]);
+  const voterCount = useMemo(() => members.length - coordCount, [members, coordCount]);
+
+  const displayedMembers = useMemo(() => {
+    // 1. Filtrar pelo tipo (Todos / Eleitores / Coordenadores)
+    let list = members;
+    if (filterType === 'voters') {
+      list = members.filter(m => !m.isCoordinator);
+    } else if (filterType === 'coordinators') {
+      list = members.filter(m => Boolean(m.isCoordinator));
+    }
+
+    const copy = [...list];
+
+    // 2. Ordenação
+    if (sortMode === 'date_desc') {
       return copy.sort((a, b) => {
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return db - da;
+        const da = parseDateSafe(a.createdAt);
+        const db = parseDateSafe(b.createdAt);
+        if (db !== da) return db - da;
+        return (a.name || '').localeCompare(b.name || '', 'pt-BR');
       });
     }
-    if (sortMode === 'name') {
+    if (sortMode === 'date_asc') {
+      return copy.sort((a, b) => {
+        const da = parseDateSafe(a.createdAt);
+        const db = parseDateSafe(b.createdAt);
+        if (!da && db) return 1;
+        if (da && !db) return -1;
+        if (da !== db) return da - db;
+        return (a.name || '').localeCompare(b.name || '', 'pt-BR');
+      });
+    }
+    if (sortMode === 'name_asc') {
       return copy.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+    }
+    if (sortMode === 'name_desc') {
+      return copy.sort((a, b) => (b.name || '').localeCompare(a.name || '', 'pt-BR'));
     }
     // coordinator first, then alphabetical
     return copy.sort((a, b) => {
@@ -103,7 +173,7 @@ export default function MemberList({
       if (ca !== cb) return ca - cb;
       return (a.name || '').localeCompare(b.name || '', 'pt-BR');
     });
-  }, [members, sortMode]);
+  }, [members, filterType, sortMode]);
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     try {
@@ -131,8 +201,8 @@ export default function MemberList({
   };
 
   const membersWithPhone = useMemo(() => {
-    return sortedMembers.filter(m => Boolean(m.phone && m.phone.replace(/\D/g, '').length >= 8));
-  }, [sortedMembers]);
+    return displayedMembers.filter(m => Boolean(m.phone && m.phone.replace(/\D/g, '').length >= 8));
+  }, [displayedMembers]);
 
   const isAllSelected = membersWithPhone.length > 0 && membersWithPhone.every(m => selectedMemberIds.has(m.id));
 
@@ -154,8 +224,8 @@ export default function MemberList({
   };
 
   const selectedList = useMemo(() => {
-    return sortedMembers.filter(m => selectedMemberIds.has(m.id) && m.phone);
-  }, [sortedMembers, selectedMemberIds]);
+    return displayedMembers.filter(m => selectedMemberIds.has(m.id) && m.phone);
+  }, [displayedMembers, selectedMemberIds]);
 
   const handleCopySelectedNumbers = async (sep: 'newline' | 'comma' = 'newline') => {
     const phones = selectedList
@@ -212,38 +282,103 @@ export default function MemberList({
     );
   }
 
-  const isCoord = (m: Member) => Boolean(m.isCoordinator);
-  const coordCount = members.filter(isCoord).length;
-  const voterCount = members.length - coordCount;
 
   return (
     <div className="bg-white shadow-xl overflow-hidden border border-gray-200 rounded-none">
-      {/* ── Sort Controls ─────────────────────────────────────────────── */}
-      {!isCoordinatorView && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-          <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 mr-1">Ordenar:</span>
-          {(
-            [
-              { mode: 'date' as SortMode, label: 'Data', icon: <CalendarDays className="w-3 h-3" /> },
-              { mode: 'name' as SortMode, label: 'A–Z', icon: <ArrowDownAZ className="w-3 h-3" /> },
-              { mode: 'coordinator' as SortMode, label: 'Coordenadores', icon: <ShieldIcon className="w-3 h-3" /> },
-            ] as { mode: SortMode; label: string; icon: React.ReactNode }[]
-          ).map(({ mode, label, icon }) => (
+      {/* ── Barra Superior: Abas de Filtragem e Ordenação ─────────────── */}
+      <div className="bg-slate-900 text-white p-2.5 sm:px-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800">
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto py-1">
+          <button
+            onClick={() => setFilterType('all')}
+            className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 transition-all ${
+              filterType === 'all'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30 ring-2 ring-blue-400/40'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            <User className="w-3.5 h-3.5" />
+            <span>Todos</span>
+            <span className="bg-black/30 px-1.5 py-0.5 rounded-full text-[9px] font-bold">
+              {members.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setFilterType('voters')}
+            className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 transition-all ${
+              filterType === 'voters'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 ring-2 ring-indigo-400/40'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            <span>Eleitores</span>
+            <span className="bg-black/30 px-1.5 py-0.5 rounded-full text-[9px] font-bold">
+              {voterCount}
+            </span>
+          </button>
+
+          {!isCoordinatorView && (
             <button
-              key={mode}
-              onClick={() => setSortMode(mode)}
-              className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-black uppercase tracking-wide rounded-xl border transition-all ${
-                sortMode === mode
-                  ? 'bg-gov-blue text-white border-gov-blue shadow-sm'
-                  : 'bg-white text-gray-500 border-gray-200 hover:border-gov-blue hover:text-gov-blue'
+              onClick={() => setFilterType('coordinators')}
+              className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 transition-all ${
+                filterType === 'coordinators'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/30 ring-2 ring-emerald-400/40'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
             >
-              {icon}
-              {label}
+              <ShieldIcon className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Coordenadores</span>
+              <span className="bg-black/30 px-1.5 py-0.5 rounded-full text-[9px] font-bold">
+                {coordCount}
+              </span>
             </button>
-          ))}
+          )}
         </div>
-      )}
+
+        {/* ── Controles de Ordenação ── */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setSortMode(prev => prev === 'date_desc' ? 'date_asc' : 'date_desc')}
+            title="Clique para alternar entre Mais Recentes e Mais Antigos"
+            className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide border flex items-center gap-1 transition-all ${
+              sortMode === 'date_desc' || sortMode === 'date_asc'
+                ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span>Data {sortMode === 'date_asc' ? '↑ Antigos' : '↓ Recentes'}</span>
+          </button>
+
+          <button
+            onClick={() => setSortMode(prev => prev === 'name_asc' ? 'name_desc' : 'name_asc')}
+            title="Clique para alternar ordem alfabética"
+            className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide border flex items-center gap-1 transition-all ${
+              sortMode === 'name_asc' || sortMode === 'name_desc'
+                ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+          >
+            <ArrowDownAZ className="w-3.5 h-3.5" />
+            <span>Nome {sortMode === 'name_desc' ? 'Z–A' : 'A–Z'}</span>
+          </button>
+
+          {!isCoordinatorView && filterType === 'all' && (
+            <button
+              onClick={() => setSortMode('coordinator_first')}
+              title="Coordenadores primeiro"
+              className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wide border flex items-center gap-1 transition-all ${
+                sortMode === 'coordinator_first'
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+              }`}
+            >
+              <ShieldIcon className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Coord. 1º</span>
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ── Barra de Ações para Eleitores Marcados ─────────────────────── */}
       {selectedMemberIds.size > 0 && (
@@ -290,14 +425,128 @@ export default function MemberList({
         </div>
       )}
 
-      <div 
+      {/* ── Visualização Mobile em Cards (md:hidden) ────────────────── */}
+      <div className="block md:hidden max-h-[600px] overflow-y-auto bg-slate-50 p-2.5 space-y-2.5">
+        {displayedMembers.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-2xl border border-gray-200 p-4">
+            <User className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+            <p className="text-xs font-black uppercase text-gray-500">Nenhum registro encontrado neste filtro.</p>
+          </div>
+        ) : (
+          displayedMembers.map((member, idx) => {
+            const isCoordMember = !isCoordinatorView && Boolean(member.isCoordinator);
+            return (
+              <div
+                key={member.id}
+                onClick={() => onSelect(member)}
+                className={`bg-white rounded-2xl p-3.5 border shadow-sm transition-all active:scale-[0.99] ${
+                  isCoordMember ? 'border-emerald-300 bg-emerald-50/20' : 'border-gray-200'
+                }`}
+              >
+                {/* Cabeçalho do Card */}
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                    <span className="w-6 h-6 rounded-lg bg-gray-100 text-gov-blue text-[10px] font-black flex items-center justify-center shrink-0 border border-gray-200">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-xs font-black uppercase truncate ${isCoordMember ? 'text-emerald-700' : 'text-gray-900'}`}>
+                          {member.name}
+                        </span>
+                        {isCoordMember && (
+                          <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0 inline-flex items-center gap-0.5">
+                            <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+                            Coordenador
+                          </span>
+                        )}
+                      </div>
+                      {member.createdAt && (
+                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
+                          Cadastrado: {formatDateSafe(member.createdAt)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
 
+                  <input
+                    type="checkbox"
+                    checked={selectedMemberIds.has(member.id)}
+                    disabled={!member.phone}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleSelectMember(member.id);
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer disabled:opacity-20 shrink-0 mt-0.5"
+                    title={member.phone ? "Marcar para envio" : "Sem telefone"}
+                  />
+                </div>
+
+                {/* WhatsApp & Telefone */}
+                <div className="mb-2.5">
+                  {member.phone ? (
+                    <a
+                      href={getWhatsAppLink(member.phone, member.name, welcomeTemplate)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-all text-xs font-black"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{formatPhone(member.phone)}</span>
+                    </a>
+                  ) : (
+                    <span className="text-[10px] font-bold text-red-500 italic bg-red-50 px-2.5 py-1 rounded-lg border border-red-100">
+                      Sem telefone
+                    </span>
+                  )}
+                </div>
+
+                {/* Metadados: Bairro, Zona/Seção, Idade */}
+                <div className="grid grid-cols-2 gap-1.5 text-[10px] font-bold text-gray-600 bg-gray-50/80 p-2 rounded-xl border border-gray-100 mb-2.5">
+                  <div>
+                    <span className="text-gray-400 block text-[8px] uppercase tracking-wider">Bairro / Região</span>
+                    <span className="truncate block font-black text-gray-800">{member.neighborhood || member.region || 'Não informado'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 block text-[8px] uppercase tracking-wider">Título / Seção</span>
+                    <span className="truncate block font-black text-gray-800">
+                      {member.voterId ? `${member.voterId} (S:${member.voterSection || '0'})` : 'Não informado'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Ações do Card */}
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(member); }}
+                    className="px-2.5 py-1 text-gov-blue hover:bg-blue-50 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 border border-blue-200/60"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    Editar
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(member.id); }}
+                    className="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 border border-red-200/60"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── Tabela para Desktop e Tablet (hidden md:block) ──────────────── */}
+      <div 
         ref={tableContainerRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUpOrLeave}
         onMouseLeave={handleMouseUpOrLeave}
-        className={`relative overflow-auto select-none transition-[cursor] duration-75 ${
+        className={`hidden md:block relative overflow-auto select-none transition-[cursor] duration-75 ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
         }`} 
         style={{ maxHeight: '600px' }}
@@ -331,7 +580,7 @@ export default function MemberList({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {sortedMembers.map((member, idx) => {
+            {displayedMembers.map((member, idx) => {
               const isCoordinatorMember = !isCoordinatorView && Boolean(member.isCoordinator);
 
               return (

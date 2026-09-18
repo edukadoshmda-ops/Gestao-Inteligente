@@ -104,8 +104,36 @@ export default function PublicCoordinatorRegister({ onBack, onLoginSuccess }: Pu
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, photo: reader.result as string }));
+      reader.onload = (readerEvent) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 320;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.75);
+            setFormData(prev => ({ ...prev, photo: compressed }));
+          } else {
+            setFormData(prev => ({ ...prev, photo: readerEvent.target?.result as string }));
+          }
+        };
+        img.src = readerEvent.target?.result as string;
       };
       reader.readAsDataURL(file);
     }
@@ -137,11 +165,8 @@ export default function PublicCoordinatorRegister({ onBack, onLoginSuccess }: Pu
     try {
       const currentOrgId = org?.id || new URLSearchParams(window.location.search).get('org') || undefined;
 
-      // 1. Verificar se o e-mail já está cadastrado (WhatsApp/Telefone pode ser repetido)
-      const existingCoords = await db.getCoordinators(currentOrgId);
-      const isDuplicate = cleanEmail && existingCoords.some(
-        c => c.email && c.email.trim().toLowerCase() === cleanEmail
-      );
+      // 1. Verificar se o e-mail já está cadastrado de forma ultraleve (sem baixar lista de coordenadores)
+      const isDuplicate = await db.checkCoordinatorExists(cleanEmail, currentOrgId);
 
       if (isDuplicate) {
         setError('Este e-mail já está cadastrado como coordenador. Faça login ou utilize outro e-mail.');
@@ -168,9 +193,8 @@ export default function PublicCoordinatorRegister({ onBack, onLoginSuccess }: Pu
         ...({ password: cleanPassword, role: networkId ? 'coordinator' : 'area_coordinator' } as any)
       };
 
-      // 3. Salvar na base de dados (Supabase + LocalStorage)
-      const updatedList = [newCoordinator, ...existingCoords];
-      await db.saveCoordinators(updatedList, currentOrgId);
+      // 3. Salvar de forma unitária no Supabase + Cache local (~1KB de rede)
+      await db.addCoordinator(newCoordinator, currentOrgId);
 
       // Salvar credenciais localmente para login imediato
       localStorage.setItem(`@AppGestao:userPass_${cleanEmail}`, cleanPassword);

@@ -76,6 +76,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const [systemNotice, setSystemNotice] = useState<{ title: string, msg: string } | null>(null);
   const coordExcelInputRef = useRef<HTMLInputElement>(null);
   const [isImportingCoordExcel, setIsImportingCoordExcel] = useState(false);
+  const [isCloudRestricted, setIsCloudRestricted] = useState(false);
 
   const isSuperAdmin = username.toLowerCase().includes('edukadoshmda') || 
                        username.toLowerCase() === 'admin' || 
@@ -388,15 +389,15 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     return targetSet.has(clean) || targetSet.has(cleanWithoutPrefix) || targetSet.has(`coord-${cleanWithoutPrefix}`);
   }, []);
 
-  const loadDashboardData = useCallback(() => {
+  const loadDashboardData = useCallback((forceRefresh = false) => {
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
 
     console.log('🔍 loadDashboardData - Profile:', profile?.full_name, 'role:', profile?.role, 'org:', currentOrgId);
 
     // Buscar coordenadores e membros com persistência resiliente e filtro estrito por organização e cargo
     Promise.all([
-      db.getCoordinators(currentOrgId),
-      db.getMembers(currentOrgId)
+      db.getCoordinators(currentOrgId, forceRefresh),
+      db.getMembers(currentOrgId, forceRefresh)
     ]).then(([allCoordinators, allMembers]) => {
       console.log('🔍 Total carregado da org:', { coordinators: allCoordinators.length, members: allMembers.length });
 
@@ -473,35 +474,81 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   useEffect(() => {
     loadDashboardData();
 
-    // Sincronização automática quando a janela ganha foco ou quando há novo cadastro em outra aba
-    const handleStorageChange = () => loadDashboardData();
+    // Sincronização inteligente: storage e focus usam o cache (sem bater no Supabase desnecessariamente)
+    const handleStorageChange = () => loadDashboardData(false);
+    const handleCloudRestricted = () => setIsCloudRestricted(true);
+    const handleMemberRegistered = (e: any) => {
+      const newM = e.detail;
+      if (newM && newM.id) {
+        setMembers(prev => {
+          if (prev.some(m => m.id === newM.id)) return prev;
+          return [newM, ...prev];
+        });
+      } else {
+        loadDashboardData(false);
+      }
+    };
+
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('focus', handleStorageChange);
-    window.addEventListener('member_registered', handleStorageChange);
+    window.addEventListener('member_registered', handleMemberRegistered);
+    window.addEventListener('supabase_cloud_restricted', handleCloudRestricted);
 
-    // Canal Realtime do Supabase para atualização instantânea de novos membros
+    // Canal Realtime do Supabase para atualização instantânea sem baixar o banco inteiro
     let subscription: any = null;
-    if (supabase) {
-      subscription = supabase
-        .channel('dashboard-realtime-members')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => {
-          loadDashboardData();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'coordinators' }, () => {
-          loadDashboardData();
-        })
-        .subscribe();
+    if (supabase && !isCloudRestricted) {
+      try {
+        const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
+        subscription = supabase
+          .channel('dashboard-realtime-members')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'members' }, (payload: any) => {
+            const newM = payload.new as Member;
+            if (newM && newM.id) {
+              setMembers(prev => prev.some(m => m.id === newM.id) ? prev : [newM, ...prev]);
+            }
+          })
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'members' }, (payload: any) => {
+            const updatedM = payload.new as Member;
+            if (updatedM && updatedM.id) {
+              setMembers(prev => prev.map(m => m.id === updatedM.id ? { ...m, ...updatedM } : m));
+            }
+          })
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'members' }, (payload: any) => {
+            const oldId = payload.old?.id;
+            if (oldId) {
+              setMembers(prev => prev.filter(m => m.id !== oldId));
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'coordinators' }, () => {
+            db.getCoordinators(currentOrgId, true).then(setCoordinators).catch(() => {});
+          })
+          .subscribe((status: string) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              console.warn('Realtime Supabase pausado ou restrito (402). Operando em modo offline resiliente.');
+              setIsCloudRestricted(true);
+            }
+          });
+      } catch {
+        setIsCloudRestricted(true);
+      }
     }
 
     // Busca aviso dinâmico do Supabase
     const fetchNotice = async () => {
-      if (!supabase) return;
+      if (!supabase || isCloudRestricted) return;
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('announcements')
           .select('title, content')
           .limit(1)
           .maybeSingle();
+
+        if (error) {
+          if (error.code === '402' || error.message?.includes('restricted') || error.message?.includes('spend cap')) {
+            setIsCloudRestricted(true);
+          }
+          return;
+        }
 
         if (data) setSystemNotice({ title: data.title, msg: data.content });
       } catch {
@@ -514,11 +561,14 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('focus', handleStorageChange);
       window.removeEventListener('member_registered', handleStorageChange);
+      window.removeEventListener('supabase_cloud_restricted', handleCloudRestricted);
       if (subscription && supabase) {
-        supabase.removeChannel(subscription);
+        try {
+          supabase.removeChannel(subscription);
+        } catch {}
       }
     };
-  }, [loadDashboardData]);
+  }, [loadDashboardData, isCloudRestricted]);
 
   // Debounce para busca profissional
   useEffect(() => {
@@ -564,7 +614,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     await db.saveMembers(data, currentOrgId);
   };
 
-  const handleAddMember = (memberData: Omit<Member, 'id' | 'createdAt'>) => {
+  const handleAddMember = async (memberData: Omit<Member, 'id' | 'createdAt'>) => {
     const finalMemberData = { ...memberData };
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
     const myCoordId = loggedInCoordinator?.id || profile.id?.replace(/^coord-/, '') || profile.id;
@@ -623,10 +673,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
 
     if (selectedMember) {
+      const mergedMember = { ...selectedMember, ...finalMemberData };
       const updatedMembers = members.map(m =>
-        m.id === selectedMember.id ? { ...m, ...finalMemberData } : m
+        m.id === selectedMember.id ? mergedMember : m
       );
-      saveMembers(updatedMembers);
+      setMembers(updatedMembers);
+      await db.updateMember(mergedMember, currentOrgId);
       setSelectedMember(null);
       showToast('Registro atualizado com sucesso!');
       setIsAdding(false);
@@ -638,7 +690,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         org_id: currentOrgId,
         network_id: finalMemberData.network_id || (profile.role === 'area_coordinator' ? myCoordId : undefined)
       };
-      saveMembers([newMember, ...members]);
+      setMembers([newMember, ...members]);
+      await db.addMember(newMember, currentOrgId);
       showToast('Registro cadastrado com sucesso!');
       setIsAdding(false);
     }
@@ -680,11 +733,12 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
 
     if (selectedCoordinator) {
+      const mergedCoord = { ...selectedCoordinator, ...coordData };
       const updated = coordinators.map(c =>
-        c.id === selectedCoordinator.id ? { ...c, ...coordData } : c
+        c.id === selectedCoordinator.id ? mergedCoord : c
       );
       setCoordinators(updated);
-      await db.saveCoordinators(updated, currentOrgId);
+      await db.updateCoordinator(mergedCoord, currentOrgId);
       setSelectedCoordinator(null);
       showToast('Coordenador atualizado!');
     } else {
@@ -696,9 +750,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         network_id: profile.role === 'area_coordinator' ? myCoordId : (coordData.network_id || undefined),
         role: profile.role === 'area_coordinator' ? 'coordinator' : (coordData.role || (coordData.network_id ? 'coordinator' : 'area_coordinator'))
       };
-      const updated = [newCoord, ...coordinators];
-      setCoordinators(updated);
-      await db.saveCoordinators(updated, currentOrgId);
+      setCoordinators([newCoord, ...coordinators]);
+      await db.addCoordinator(newCoord, currentOrgId);
       showToast('Coordenador cadastrado com sucesso!');
     }
     setIsAddingCoordinator(false);
@@ -884,7 +937,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
           neighborhood: c.neighborhood || '',
           region: c.city || 'DF',
           referral: 'Coordenação Geral',
-          createdAt: c.createdAt || new Date().toISOString(),
+          createdAt: c.createdAt || '',
           org_id: c.org_id,
           network_id: c.network_id,
           isCoordinator: true,

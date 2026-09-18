@@ -64,6 +64,17 @@ export function cleanPhone(p?: string | null): string {
   return p.replace(/\D/g, '');
 }
 
+export function checkCloudRestricted(error: any) {
+  if (!error) return;
+  const msg = String(error.message || error.details || '').toLowerCase();
+  const code = String(error.code || (error as any).status || '');
+  if (code === '402' || msg.includes('restricted') || msg.includes('spend cap') || msg.includes('payment required')) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('supabase_cloud_restricted'));
+    }
+  }
+}
+
 /**
  * Deduplica lista de membros mantendo o registro mais completo / mais recente
  */
@@ -155,6 +166,18 @@ export function deduplicateCoordinatorList(coords: Coordinator[]): { deduplicate
   return { deduplicated, removedIds };
 }
 
+// TTL de Cache em milissegundos (5 minutos) para evitar requisições repetidas ao Supabase
+const MEMBERS_CACHE_TTL = 5 * 60 * 1000;
+const COORDS_CACHE_TTL = 5 * 60 * 1000;
+
+interface CacheEntry<T> {
+  data: T[];
+  timestamp: number;
+}
+
+const memoryMembersCache = new Map<string, CacheEntry<Member>>();
+const memoryCoordsCache = new Map<string, CacheEntry<Coordinator>>();
+
 // Colunas seguras que existem na tabela members do Supabase
 const SUPABASE_MEMBER_COLS = new Set([
   'id', 'name', 'email', 'phone', 'age', 'voterId', 'voterSection',
@@ -162,9 +185,176 @@ const SUPABASE_MEMBER_COLS = new Set([
   'coordinatorId', 'birthDate', 'region', 'referral', 'mainInterest', 'supportLevel'
 ]);
 
+const SUPABASE_MEMBER_COLS_STR = 'id,name,email,phone,age,voterId,voterSection,voterZone,gender,createdAt,org_id,network_id,coordinatorId,birthDate,region,referral,mainInterest,supportLevel';
+const SUPABASE_COORD_COLS_STR = 'id,name,email,neighborhood,city,voterId,voterSection,voterZone,photo,whatsapp,network_id,role,org_id,createdAt';
+
+export const toSupabaseMemberRow = (m: any, orgId?: string) => {
+  const row: any = {};
+  for (const key of SUPABASE_MEMBER_COLS) {
+    if (m[key] !== undefined && m[key] !== null && m[key] !== '') {
+      row[key] = m[key];
+    }
+  }
+  if (orgId && !row.org_id) row.org_id = orgId;
+  return row;
+};
+
 // Helper para abstrair a persistência resiliente (Supabase + LocalStorage)
 export const db = {
-  async getMembers(orgId?: string): Promise<Member[]> {
+  /**
+   * Invalida o cache de membros para forçar uma nova sincronização na próxima chamada
+   */
+  invalidateMembersCache(orgId?: string): void {
+    if (orgId) {
+      memoryMembersCache.delete(orgId);
+      try { localStorage.removeItem(`@AppGestao:members_ts_${orgId}`); } catch {}
+    } else {
+      memoryMembersCache.clear();
+      try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('@AppGestao:members_ts_')) localStorage.removeItem(k);
+        }
+      } catch {}
+    }
+  },
+
+  /**
+   * Invalida o cache de coordenadores
+   */
+  invalidateCoordinatorsCache(orgId?: string): void {
+    if (orgId) {
+      memoryCoordsCache.delete(orgId);
+      try { localStorage.removeItem(`@AppGestao:coordinators_ts_${orgId}`); } catch {}
+    } else {
+      memoryCoordsCache.clear();
+      try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('@AppGestao:coordinators_ts_')) localStorage.removeItem(k);
+        }
+      } catch {}
+    }
+  },
+
+  /**
+   * Verifica de forma leve se um eleitor já existe (menos de 1KB de dados)
+   */
+  async checkMemberExists(voterId?: string, name?: string, orgId?: string): Promise<{ exists: boolean; member?: Partial<Member> }> {
+    const client = getClient();
+    if (!client || client.isMock) return { exists: false };
+
+    try {
+      if (voterId && voterId.trim().length >= 5) {
+        let q = client.from('members').select('id, name, voterId').eq('voterId', voterId.trim());
+        if (orgId && orgId !== 'demo-org' && orgId !== 'undefined') q = q.eq('org_id', orgId);
+        const { data } = await q.limit(1).maybeSingle();
+        if (data) return { exists: true, member: data as Partial<Member> };
+      }
+      if (name && name.trim().length >= 3) {
+        let q = client.from('members').select('id, name, voterId').ilike('name', name.trim());
+        if (orgId && orgId !== 'demo-org' && orgId !== 'undefined') q = q.eq('org_id', orgId);
+        const { data } = await q.limit(1).maybeSingle();
+        if (data) return { exists: true, member: data as Partial<Member> };
+      }
+      return { exists: false };
+    } catch {
+      return { exists: false };
+    }
+  },
+
+  /**
+   * Salva ou atualiza APENAS UM eleitor no Supabase e no Cache local.
+   * Evita enviar ou baixar toda a tabela de membros (~1KB de rede em vez de dezenas de MB!).
+   */
+  async addMember(member: Member, orgId?: string): Promise<Member> {
+    const targetOrg = orgId || member.org_id;
+    const orgKey = targetOrg || 'global';
+    const cleanMember: Member = {
+      ...member,
+      id: member.id || crypto.randomUUID().split('-')[0],
+      createdAt: member.createdAt || new Date().toISOString(),
+      ...(targetOrg ? { org_id: targetOrg } : {})
+    };
+
+    // 1. Atualizar Cache em memória
+    const currentMemory = memoryMembersCache.get(orgKey);
+    let currentList = currentMemory?.data;
+    if (!currentList) {
+      try {
+        const raw = localStorage.getItem(targetOrg && targetOrg !== 'demo-org' ? `@AppGestao:members_${targetOrg}` : LOCAL_STORAGE_KEY);
+        currentList = raw ? JSON.parse(raw) : [];
+      } catch {
+        currentList = [];
+      }
+    }
+
+    const existingIdx = currentList.findIndex(m => m.id === cleanMember.id || (cleanMember.voterId && m.voterId && m.voterId.trim() === cleanMember.voterId.trim()));
+    let updatedList: Member[];
+    if (existingIdx >= 0) {
+      const existing = currentList[existingIdx];
+      cleanMember.id = existing.id;
+      updatedList = currentList.map((m, i) => i === existingIdx ? { ...existing, ...cleanMember } : m);
+    } else {
+      updatedList = [cleanMember, ...currentList];
+    }
+
+    memoryMembersCache.set(orgKey, { data: updatedList, timestamp: Date.now() });
+
+    // 2. Atualizar LocalStorage
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedList));
+      if (targetOrg && targetOrg !== 'undefined' && targetOrg !== 'demo-org') {
+        localStorage.setItem(`@AppGestao:members_${targetOrg}`, JSON.stringify(updatedList));
+      }
+      localStorage.setItem(`@AppGestao:members_ts_${orgKey}`, String(Date.now()));
+    } catch {}
+
+    // 3. Salvar APENAS esse registro individual no Supabase (consumo ínfimo de banda)
+    const client = getClient();
+    if (client && !client.isMock) {
+      try {
+        const row = toSupabaseMemberRow(cleanMember, targetOrg);
+        const { error } = await client.from('members').upsert([row], { onConflict: 'id' });
+        if (error) checkCloudRestricted(error);
+      } catch (err) {
+        console.warn("Aviso ao salvar membro individual:", err);
+      }
+    }
+
+    return cleanMember;
+  },
+
+  async updateMember(member: Member, orgId?: string): Promise<Member> {
+    return this.addMember(member, orgId);
+  },
+
+  async getMembers(orgId?: string, forceRefresh = false): Promise<Member[]> {
+    const orgKey = orgId || 'global';
+    const now = Date.now();
+
+    // 0. Retornar Cache se ainda estiver válido (Zero Egress / Zero tráfego de rede)
+    if (!forceRefresh) {
+      const memory = memoryMembersCache.get(orgKey);
+      if (memory && (now - memory.timestamp < MEMBERS_CACHE_TTL) && memory.data.length > 0) {
+        return memory.data;
+      }
+
+      try {
+        const cachedTs = localStorage.getItem(`@AppGestao:members_ts_${orgKey}`);
+        if (cachedTs && (now - Number(cachedTs) < MEMBERS_CACHE_TTL)) {
+          const raw = localStorage.getItem(orgId && orgId !== 'demo-org' ? `@AppGestao:members_${orgId}` : LOCAL_STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              memoryMembersCache.set(orgKey, { data: parsed, timestamp: Number(cachedTs) });
+              return parsed;
+            }
+          }
+        }
+      } catch {}
+    }
+
     const deletedIds = getDeletedMemberIds();
     const client = getClient();
     let supabaseMembers: Member[] | null = null;
@@ -179,7 +369,7 @@ export const db = {
         while (hasMore) {
           let query = client
             .from('members')
-            .select('*')
+            .select(SUPABASE_MEMBER_COLS_STR)
             .range(from, from + pageSize - 1)
             .order('createdAt', { ascending: false });
 
@@ -189,6 +379,7 @@ export const db = {
 
           const { data, error } = await query;
           if (error) {
+            checkCloudRestricted(error);
             console.warn("Aviso ao buscar membros no Supabase:", error);
             break;
           }
@@ -286,18 +477,21 @@ export const db = {
       return timeB - timeA;
     });
 
-    // 4. Atualizar LocalStorage com a base limpa e sem duplicatas
+    // 4. Atualizar Cache em memória e LocalStorage com a base limpa
+    memoryMembersCache.set(orgKey, { data: finalMembers, timestamp: now });
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalMembers));
       if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(finalMembers));
       }
+      localStorage.setItem(`@AppGestao:members_ts_${orgKey}`, String(now));
     } catch {}
 
     return finalMembers;
   },
 
   async saveMembers(members: Member[], orgId?: string): Promise<void> {
+    const orgKey = orgId || 'global';
     const deletedIds = getDeletedMemberIds();
     // Filtra IDs excluídos e deduplica antes de salvar
     const cleanList = members.filter(m => m?.id && !deletedIds.has(String(m.id)));
@@ -306,12 +500,16 @@ export const db = {
       addDeletedMemberIds(removedIds);
     }
 
+    // Atualiza Cache
+    memoryMembersCache.set(orgKey, { data: deduplicated, timestamp: Date.now() });
+
     // 1. Salvar no LocalStorage
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(deduplicated));
       if (orgId) {
         localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(deduplicated));
       }
+      localStorage.setItem(`@AppGestao:members_ts_${orgKey}`, String(Date.now()));
     } catch (e) {
       console.warn("Erro ao salvar membros no storage local:", e);
     }
@@ -319,27 +517,17 @@ export const db = {
     const client = getClient();
     if (!client || deduplicated.length === 0) return;
 
-    const toSupabaseRow = (m: any) => {
-      const row: any = {};
-      for (const key of SUPABASE_MEMBER_COLS) {
-        if (m[key] !== undefined && m[key] !== null && m[key] !== '') {
-          row[key] = m[key];
-        }
-      }
-      if (orgId && !row.org_id) row.org_id = orgId;
-      return row;
-    };
-
     // 2. Sincroniza no Supabase em lotes
     try {
       const BATCH_SIZE = 500;
       for (let i = 0; i < deduplicated.length; i += BATCH_SIZE) {
-        const batch = deduplicated.slice(i, i + BATCH_SIZE).map(toSupabaseRow);
+        const batch = deduplicated.slice(i, i + BATCH_SIZE).map(m => toSupabaseMemberRow(m, orgId));
         const { error } = await client
           .from('members')
           .upsert(batch, { onConflict: 'id' });
 
         if (error) {
+          checkCloudRestricted(error);
           console.warn("Aviso ao salvar membros no Supabase:", error.message || error);
         }
       }
@@ -359,6 +547,12 @@ export const db = {
 
     // 1. Gravar nos Tombstones permanentemente para JAMAIS ressuscitar
     addDeletedMemberIds(cleanIds);
+
+    // Atualizar Cache de Memória
+    const memEntry = memoryMembersCache.get(orgId || 'global');
+    if (memEntry) {
+      memEntry.data = memEntry.data.filter(m => !idSet.has(String(m.id)));
+    }
 
     // 2. Remover de todas as chaves do LocalStorage
     try {
@@ -401,7 +595,32 @@ export const db = {
     } catch {}
   },
 
-  async getCoordinators(orgId?: string): Promise<Coordinator[]> {
+  async getCoordinators(orgId?: string, forceRefresh = false): Promise<Coordinator[]> {
+    const orgKey = orgId || 'global';
+    const now = Date.now();
+
+    // 0. Retornar Cache se ainda estiver válido (Zero Egress)
+    if (!forceRefresh) {
+      const memory = memoryCoordsCache.get(orgKey);
+      if (memory && (now - memory.timestamp < COORDS_CACHE_TTL) && memory.data.length > 0) {
+        return memory.data;
+      }
+
+      try {
+        const cachedTs = localStorage.getItem(`@AppGestao:coordinators_ts_${orgKey}`);
+        if (cachedTs && (now - Number(cachedTs) < COORDS_CACHE_TTL)) {
+          const raw = localStorage.getItem(orgId && orgId !== 'demo-org' ? `@AppGestao:coordinators_${orgId}` : COORD_STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              memoryCoordsCache.set(orgKey, { data: parsed, timestamp: Number(cachedTs) });
+              return parsed;
+            }
+          }
+        }
+      } catch {}
+    }
+
     const deletedIds = getDeletedCoordinatorIds();
     const client = getClient();
     let supabaseCoords: Coordinator[] | null = null;
@@ -416,7 +635,7 @@ export const db = {
         while (hasMore) {
           let query = client
             .from('coordinators')
-            .select('*')
+            .select(SUPABASE_COORD_COLS_STR)
             .range(from, from + pageSize - 1)
             .order('name');
 
@@ -426,6 +645,7 @@ export const db = {
 
           const { data, error } = await query;
           if (error) {
+            checkCloudRestricted(error);
             console.warn("Aviso ao buscar coordenadores no Supabase:", error);
             break;
           }
@@ -504,52 +724,129 @@ export const db = {
       }
     }
 
+    // Atualizar Cache
+    memoryCoordsCache.set(orgKey, { data: deduplicated, timestamp: now });
     try {
       localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(deduplicated));
       if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(deduplicated));
       }
+      localStorage.setItem(`@AppGestao:coordinators_ts_${orgKey}`, String(now));
     } catch {}
 
     return deduplicated;
   },
 
-  async addCoordinator(coordinator: Omit<Coordinator, 'id' | 'createdAt'>): Promise<Coordinator | null> {
+  /**
+   * Verifica se coordenador já existe por e-mail (consulta ultraleve)
+   */
+  async checkCoordinatorExists(email: string, orgId?: string): Promise<boolean> {
     const client = getClient();
-    if (!client) return null;
-
+    if (!client || client.isMock || !email) return false;
     try {
-      const newCoordinator: any = {
-        ...coordinator,
-        id: 'coord-' + Math.random().toString(36).substr(2, 9),
-        createdAt: new Date().toISOString()
-      };
-
-      const { data, error } = await client
-        .from('coordinators')
-        .insert([newCoordinator])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data as unknown as Coordinator;
-    } catch (error) {
-      console.error('Erro ao adicionar coordenador:', error);
-      return null;
+      let q = client.from('coordinators').select('id').eq('email', email.trim().toLowerCase());
+      if (orgId && orgId !== 'demo-org' && orgId !== 'undefined') q = q.eq('org_id', orgId);
+      const { data } = await q.limit(1).maybeSingle();
+      return !!data;
+    } catch {
+      return false;
     }
   },
 
+  /**
+   * Adiciona ou atualiza APENAS UM coordenador de forma unitária (~1KB de rede)
+   */
+  async addCoordinator(coordinator: Coordinator | Omit<Coordinator, 'id' | 'createdAt'>, orgId?: string): Promise<Coordinator | null> {
+    const client = getClient();
+    const targetOrg = orgId || (coordinator as any).org_id;
+    const orgKey = targetOrg || 'global';
+
+    const cleanCoord: Coordinator = {
+      ...coordinator,
+      id: (coordinator as any).id || ('coord-' + Math.random().toString(36).substr(2, 9)),
+      createdAt: (coordinator as any).createdAt || new Date().toISOString(),
+      ...(targetOrg ? { org_id: targetOrg } : {})
+    };
+
+    // 1. Atualizar Cache em memória
+    const currentMemory = memoryCoordsCache.get(orgKey);
+    let currentList = currentMemory?.data;
+    if (!currentList) {
+      try {
+        const raw = localStorage.getItem(targetOrg && targetOrg !== 'demo-org' ? `@AppGestao:coordinators_${targetOrg}` : COORD_STORAGE_KEY);
+        currentList = raw ? JSON.parse(raw) : [];
+      } catch {
+        currentList = [];
+      }
+    }
+
+    const existingIdx = currentList.findIndex(c => c.id === cleanCoord.id || (cleanCoord.email && c.email && c.email.trim().toLowerCase() === cleanCoord.email.trim().toLowerCase()));
+    let updatedList: Coordinator[];
+    if (existingIdx >= 0) {
+      const existing = currentList[existingIdx];
+      cleanCoord.id = existing.id;
+      updatedList = currentList.map((c, i) => i === existingIdx ? { ...existing, ...cleanCoord } : c);
+    } else {
+      updatedList = [cleanCoord, ...currentList];
+    }
+
+    memoryCoordsCache.set(orgKey, { data: updatedList, timestamp: Date.now() });
+
+    try {
+      localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(updatedList));
+      if (targetOrg && targetOrg !== 'undefined' && targetOrg !== 'demo-org') {
+        localStorage.setItem(`@AppGestao:coordinators_${targetOrg}`, JSON.stringify(updatedList));
+      }
+      localStorage.setItem(`@AppGestao:coordinators_ts_${orgKey}`, String(Date.now()));
+    } catch {}
+
+    // 2. Salvar APENAS esse coordenador no Supabase
+    if (client && !client.isMock) {
+      try {
+        const batchRow = {
+          id: cleanCoord.id,
+          name: cleanCoord.name,
+          email: cleanCoord.email || null,
+          neighborhood: cleanCoord.neighborhood || null,
+          city: cleanCoord.city || null,
+          voterId: cleanCoord.voterId || null,
+          voterSection: cleanCoord.voterSection || null,
+          voterZone: cleanCoord.voterZone || null,
+          photo: cleanCoord.photo || null,
+          network_id: cleanCoord.network_id || null,
+          role: (cleanCoord as any).role || 'coordinator',
+          org_id: cleanCoord.org_id || targetOrg || undefined
+        };
+        const { error } = await client.from('coordinators').upsert([batchRow], { onConflict: 'id' });
+        if (error) checkCloudRestricted(error);
+      } catch (err) {
+        console.warn("Erro ao salvar coordenador unitário no Supabase:", err);
+      }
+    }
+
+    return cleanCoord;
+  },
+
+  async updateCoordinator(coordinator: Coordinator, orgId?: string): Promise<Coordinator | null> {
+    return this.addCoordinator(coordinator, orgId);
+  },
+
   async saveCoordinators(coordinators: Coordinator[], orgId?: string): Promise<void> {
+    const orgKey = orgId || 'global';
     const deletedIds = getDeletedCoordinatorIds();
     const cleanList = coordinators.filter(c => c?.id && !deletedIds.has(String(c.id)));
     const { deduplicated, removedIds } = deduplicateCoordinatorList(cleanList);
     if (removedIds.length > 0) addDeletedCoordinatorIds(removedIds);
+
+    // Atualiza Cache
+    memoryCoordsCache.set(orgKey, { data: deduplicated, timestamp: Date.now() });
 
     try {
       localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(deduplicated));
       if (orgId) {
         localStorage.setItem(`@AppGestao:coordinators_${orgId}`, JSON.stringify(deduplicated));
       }
+      localStorage.setItem(`@AppGestao:coordinators_ts_${orgKey}`, String(Date.now()));
     } catch {}
 
     const client = getClient();
@@ -589,6 +886,12 @@ export const db = {
     const idSet = new Set(cleanIds);
 
     addDeletedCoordinatorIds(cleanIds);
+
+    // Atualizar Cache de Memória
+    const coordEntry = memoryCoordsCache.get(orgId || 'global');
+    if (coordEntry) {
+      coordEntry.data = coordEntry.data.filter(c => !idSet.has(String(c.id)));
+    }
 
     try {
       const globalRaw = localStorage.getItem(COORD_STORAGE_KEY);

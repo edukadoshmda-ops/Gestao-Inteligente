@@ -346,15 +346,16 @@ export default function Login({ onLogin, onInstall, canInstall }: LoginProps) {
           </p>
           <div className="grid grid-cols-2 gap-1.5">
             {[
-              { label: 'Admin Root', color: 'bg-red-100 text-red-700' },
-              { label: 'Candidato', color: 'bg-blue-100 text-blue-700' },
-              { label: 'Coordenador', color: 'bg-yellow-100 text-yellow-700' },
-              { label: 'Coordenador Área', color: 'bg-green-100 text-green-700' },
+              { label: 'Admin Root', email: 'edukadoshmda@gmail.com', color: 'bg-red-100 text-red-700' },
+              { label: 'Candidato', email: 'candidato@teste.com', color: 'bg-blue-100 text-blue-700' },
+              { label: 'Coordenador', email: 'coordenador@teste.com', color: 'bg-yellow-100 text-yellow-700' },
+              { label: 'Coordenador Área', email: 'area@teste.com', color: 'bg-green-100 text-green-700' },
             ].map((role) => (
               <button
                 key={role.label}
                 type="button"
                 onClick={() => {
+                  setEmail(role.email);
                   setPassword('123456');
                 }}
                 className={`${role.color} py-1 px-1.5 rounded-xl font-black text-[7px] uppercase tracking-tighter hover:opacity-80 transition-opacity flex items-center justify-center`}

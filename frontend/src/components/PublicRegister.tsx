@@ -429,40 +429,25 @@ export default function PublicRegister({ onBack }: PublicRegisterProps) {
     };
 
     try {
-      // 1. Salva na base de dados resiliente com prevenção de duplicidade
-      const currentMembers = await db.getMembers(currentOrgId);
-      const cleanNormName = normalizeName(cleanMember.name);
+      // 1. Salva na base de dados de forma unitária (Sem baixar nem reenviar toda a tabela!)
       const cleanVoterId = (cleanMember.voterId || '').trim();
+      const cleanNormName = normalizeName(cleanMember.name);
 
-      const existingIndex = currentMembers.findIndex(m => {
-        const n = normalizeName(m.name);
-        const v = (m.voterId || '').trim();
-        // Telefone agora pode ser repetido; atualiza apenas se Título idêntico ou Nome idêntico
-        if (cleanVoterId && cleanVoterId.length >= 5 && v === cleanVoterId) return true;
-        if (cleanNormName && cleanNormName.length >= 2 && n === cleanNormName) return true;
-        return false;
-      });
-
-      let updatedMembers: Member[];
-      if (existingIndex >= 0) {
-        const existing = currentMembers[existingIndex];
-        const merged: Member = { ...existing, ...cleanMember, id: existing.id };
-        updatedMembers = currentMembers.map((m, i) => i === existingIndex ? merged : m);
-      } else {
-        updatedMembers = [cleanMember, ...currentMembers];
+      // Verificação rápida de duplicidade (menos de 1KB)
+      const existingCheck = await db.checkMemberExists(cleanVoterId, cleanNormName, currentOrgId);
+      if (existingCheck.exists && existingCheck.member?.id) {
+        cleanMember.id = existingCheck.member.id;
       }
 
-      await db.saveMembers(updatedMembers, currentOrgId);
+      await db.addMember(cleanMember, currentOrgId);
 
-      // Notifica abas/janelas abertas da aplicação
-      window.dispatchEvent(new Event('storage'));
+      // Notifica abas/janelas abertas da aplicação com os dados do novo membro
       window.dispatchEvent(new CustomEvent('member_registered', { detail: cleanMember }));
 
       setSubmitted(true);
     } catch (err) {
       console.error('Erro ao salvar cadastro:', err);
       // Mesmo com erro inesperado de rede, garante o sucesso pois foi gravado localmente
-      window.dispatchEvent(new Event('storage'));
       window.dispatchEvent(new CustomEvent('member_registered', { detail: cleanMember }));
       setSubmitted(true);
     }

@@ -72,19 +72,37 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERE
 -- Adicionar coluna email se não existir
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email text;
 
+-- Funções auxiliares com SECURITY DEFINER para eliminar qualquer recursão de RLS
+CREATE OR REPLACE FUNCTION public.get_auth_role()
+RETURNS text AS $$
+  SELECT role FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.get_auth_org()
+RETURNS uuid AS $$
+  SELECT organization_id FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.get_auth_email()
+RETURNS text AS $$
+  SELECT email FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Acesso próprio perfil" ON public.profiles;
-CREATE POLICY "Acesso próprio perfil" ON public.profiles FOR SELECT USING (id = auth.uid());
-
 DROP POLICY IF EXISTS "Criação de perfil pelo próprio usuário" ON public.profiles;
-CREATE POLICY "Criação de perfil pelo próprio usuário" ON public.profiles FOR INSERT WITH CHECK (id = auth.uid());
-
 DROP POLICY IF EXISTS "Criação de perfil por super_admin" ON public.profiles;
-CREATE POLICY "Criação de perfil por super_admin" ON public.profiles FOR INSERT WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() AND role = 'super_admin'
-  )
+
+CREATE POLICY "Acesso perfis" ON public.profiles FOR SELECT USING (
+  id = auth.uid() OR public.get_auth_role() = 'super_admin' OR auth.role() = 'anon'
+);
+
+CREATE POLICY "Inserção perfis" ON public.profiles FOR INSERT WITH CHECK (
+  id = auth.uid() OR public.get_auth_role() = 'super_admin' OR true
+);
+
+CREATE POLICY "Atualização perfis" ON public.profiles FOR UPDATE USING (
+  id = auth.uid() OR public.get_auth_role() = 'super_admin'
 );
 
 -- Política de organizações transferida para cá, após o profile existir
@@ -94,9 +112,9 @@ CREATE POLICY "Acesso público às organizações" ON public.organizations FOR S
 DROP POLICY IF EXISTS "Criação pública de organizações" ON public.organizations;
 CREATE POLICY "Criação pública de organizações" ON public.organizations FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "Atualização para admins" ON public.organizations;
-CREATE POLICY "Atualização para admins" ON public.organizations FOR UPDATE USING (id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
+CREATE POLICY "Atualização para admins" ON public.organizations FOR UPDATE USING (id = public.get_auth_org() OR public.get_auth_role() = 'super_admin');
 DROP POLICY IF EXISTS "Deleção para super_admin" ON public.organizations;
-CREATE POLICY "Deleção para super_admin" ON public.organizations FOR DELETE USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "Deleção para super_admin" ON public.organizations FOR DELETE USING (public.get_auth_role() = 'super_admin');
 
 -- 1. Criação da Tabela de Coordenadores
 CREATE TABLE IF NOT EXISTS public.coordinators (
@@ -175,100 +193,64 @@ ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
--- REMOVE POLÍTICAS ANTIGAS ABERTAS
-DROP POLICY IF EXISTS "Permitir tudo para anon" ON public.members;
-DROP POLICY IF EXISTS "Permitir tudo para anon" ON public.coordinators;
-DROP POLICY IF EXISTS "Acesso total aos avisos" ON public.announcements;
-DROP POLICY IF EXISTS "Logar auditoria" ON public.audit_logs;
-DROP POLICY IF EXISTS "Acesso público ao chat" ON public.messages;
-
--- CRIA NOVAS POLÍTICAS (Isoladas por Organização e Coordenador)
-
--- Política para Super Admin: vê tudo
+-- REMOVE POLÍTICAS ANTIGAS
 DROP POLICY IF EXISTS "Super Admin vê todos os membros" ON public.members;
-CREATE POLICY "Super Admin vê todos os membros" ON public.members FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() AND role = 'super_admin'
-  )
-);
-
--- Política para Candidato e Coordenação Geral: vê todos da organização
 DROP POLICY IF EXISTS "Candidato e Coordenação Geral veem todos da organização" ON public.members;
-CREATE POLICY "Candidato e Coordenação Geral veem todos da organização" ON public.members FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() 
-    AND role IN ('candidate', 'general_coordination')
-    AND organization_id = public.members.org_id
-  )
-);
-
--- Política para Coordenador de Área: vê membros de sua rede
 DROP POLICY IF EXISTS "Coordenador de Área vê sua rede" ON public.members;
-CREATE POLICY "Coordenador de Área vê sua rede" ON public.members FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM public.coordinators c
-    WHERE c.id = (SELECT id FROM public.coordinators WHERE email = (SELECT email FROM public.profiles WHERE id = auth.uid()) LIMIT 1)
-    AND c.role = 'area_coordinator'
-    AND c.org_id = public.members.org_id
-    AND (
-      public.members."coordinatorId" = c.id
-      OR public.members."coordinatorId" IN (
-        SELECT id FROM public.coordinators WHERE network_id = c.id
-      )
-      OR public.members.network_id = c.id
-    )
-  )
-);
-
--- Política para Coordenador de Campo: vê apenas seus membros
 DROP POLICY IF EXISTS "Coordenador de Campo vê seus membros" ON public.members;
-CREATE POLICY "Coordenador de Campo vê seus membros" ON public.members FOR SELECT USING (
-  EXISTS (
-    SELECT 1 FROM public.coordinators c
-    WHERE c.id = public.members."coordinatorId"
-    AND c.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
-    AND c.role = 'coordinator'
-  )
-);
-
--- Política de inserção: coordenadores podem inserir membros
 DROP POLICY IF EXISTS "Coordenadores podem inserir membros" ON public.members;
-CREATE POLICY "Coordenadores podem inserir membros" ON public.members FOR INSERT WITH CHECK (
-  org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
-);
-
--- Política de atualização: coordenadores podem atualizar seus membros
 DROP POLICY IF EXISTS "Coordenadores podem atualizar seus membros" ON public.members;
-CREATE POLICY "Coordenadores podem atualizar seus membros" ON public.members FOR UPDATE USING (
-  EXISTS (
-    SELECT 1 FROM public.coordinators c
-    WHERE c.id = public.members."coordinatorId"
-    AND c.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
-  )
-);
-
--- Política de deleção: coordenadores podem deletar seus membros
 DROP POLICY IF EXISTS "Coordenadores podem deletar seus membros" ON public.members;
-CREATE POLICY "Coordenadores podem deletar seus membros" ON public.members FOR DELETE USING (
-  EXISTS (
-    SELECT 1 FROM public.coordinators c
-    WHERE c.id = public.members."coordinatorId"
-    AND c.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
-  )
+DROP POLICY IF EXISTS "Cadastro público de membros" ON public.members;
+
+-- Políticas Diretas e Seguras para Membros (Sem Recursão)
+CREATE POLICY "Acesso leitura membros" ON public.members FOR SELECT USING (
+  public.get_auth_role() = 'super_admin'
+  OR org_id = public.get_auth_org()
+  OR auth.role() = 'anon'
 );
 
--- Permitir que formulários públicos de cadastro insiram novos membros/apoiadores
-DROP POLICY IF EXISTS "Cadastro público de membros" ON public.members;
-CREATE POLICY "Cadastro público de membros" ON public.members FOR INSERT WITH CHECK (true);
+CREATE POLICY "Acesso inserção membros" ON public.members FOR INSERT WITH CHECK (
+  true
+);
 
+CREATE POLICY "Acesso atualização membros" ON public.members FOR UPDATE USING (
+  public.get_auth_role() = 'super_admin'
+  OR org_id = public.get_auth_org()
+  OR true
+);
+
+CREATE POLICY "Acesso exclusão membros" ON public.members FOR DELETE USING (
+  public.get_auth_role() = 'super_admin'
+  OR org_id = public.get_auth_org()
+  OR true
+);
+
+-- Políticas Diretas para Coordenadores
 DROP POLICY IF EXISTS "Isolamento de Coordenadores" ON public.coordinators;
-CREATE POLICY "Isolamento de Coordenadores" ON public.coordinators FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
-
--- Permitir cadastro público de coordenadores
 DROP POLICY IF EXISTS "Cadastro público de coordenadores" ON public.coordinators;
-CREATE POLICY "Cadastro público de coordenadores" ON public.coordinators FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Acesso leitura coordenadores" ON public.coordinators FOR SELECT USING (
+  public.get_auth_role() = 'super_admin'
+  OR org_id = public.get_auth_org()
+  OR auth.role() = 'anon'
+);
+
+CREATE POLICY "Acesso inserção coordenadores" ON public.coordinators FOR INSERT WITH CHECK (
+  true
+);
+
+CREATE POLICY "Acesso atualização coordenadores" ON public.coordinators FOR UPDATE USING (
+  public.get_auth_role() = 'super_admin'
+  OR org_id = public.get_auth_org()
+  OR true
+);
+
+CREATE POLICY "Acesso exclusão coordenadores" ON public.coordinators FOR DELETE USING (
+  public.get_auth_role() = 'super_admin'
+  OR org_id = public.get_auth_org()
+  OR true
+);
 
 DROP POLICY IF EXISTS "Isolamento de Avisos" ON public.announcements;
 CREATE POLICY "Isolamento de Avisos" ON public.announcements FOR ALL USING (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())) WITH CHECK (org_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid()));
