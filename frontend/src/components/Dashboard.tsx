@@ -8,7 +8,7 @@ import CoordinatorForm from './CoordinatorForm';
 import CoordinatorList from './CoordinatorList';
 import Sidebar from './Sidebar';
 import Toast from './Toast';
-import { Plus, LogOut, Search, BarChart3, Download, X, Users, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
+import { Plus, LogOut, Search, BarChart3, Download, X, Users, User, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, normalizeName, cleanPhone, deduplicateMemberList } from '../lib/db';
 import { supabase, supabaseAdmin } from '../lib/supabase';
@@ -50,6 +50,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const [activeCoordinator, setActiveCoordinator] = useState<Coordinator | null>(null);
   const [genderFilter, setGenderFilter] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'list' | 'report' | 'gender' | 'coordinators' | 'ranking' | 'chat' | 'materials' | 'intelligence' | 'neighborhood' | 'admin_master' | 'ai_manager' | 'election_day' | 'settings'>('list');
+  const [listFilterType, setListFilterType] = useState<'all' | 'voters' | 'coordinators'>('all');
 
   // Verificar permissões do usuário
   const permissions = checkPermissions(profile);
@@ -864,17 +865,10 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     const cId = String(c.id || '').toLowerCase().replace(/^coord-/, '').trim();
     if (mId && cId && mId === cId) return true;
 
-    // Título de eleitor (se ambos tiverem preenchido)
+    // Título de eleitor idêntico (se ambos tiverem preenchido)
     const mVoter = m.voterId ? String(m.voterId).trim() : '';
     const cVoter = c.voterId ? String(c.voterId).trim() : '';
     if (mVoter && cVoter && mVoter.length >= 5 && mVoter === cVoter) return true;
-
-    // Se o membro tiver coordinatorId apontando para este coord e nome idêntico ou similar
-    const mName = m.name ? m.name.toLowerCase().trim() : '';
-    const cName = c.name ? c.name.toLowerCase().trim() : '';
-    if (m.coordinatorId && (m.coordinatorId === c.id || m.coordinatorId === cId)) {
-      if (mName && cName && (mName.includes(cName) || cName.includes(mName) || mName === cName)) return true;
-    }
 
     // Telefone (com 10 ou 11 dígitos, ignorando máscara)
     const mPhone = m.phone ? m.phone.replace(/\D/g, '') : '';
@@ -887,7 +881,9 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     const isGenericEmail = (email: string) => /^(maria123|teste|admin|contato|eleitor|coord)/.test(email) || email === 'maria123@gmail.com';
     if (mEmail && cEmail && !isGenericEmail(mEmail) && !isGenericEmail(cEmail) && mEmail === cEmail) return true;
 
-    // Nome completo exato (com mais de uma palavra)
+    // Nome completo exato e idêntico normalizado (com mais de uma palavra)
+    const mName = normalizeName(m.name);
+    const cName = normalizeName(c.name);
     if (mName && cName && mName === cName && mName.includes(' ')) return true;
 
     return false;
@@ -948,6 +944,15 @@ export default function Dashboard({ username, organization, profile, onLogout, o
 
     return list;
   }, [members, coordinators, isFieldCoordinator, isMemberMatchingCoordinator]);
+
+  // Totais estratégicos para os cards do topo do painel
+  const campaignTotalCount = allCampaignPeople.length;
+  const campaignCoordCount = useMemo(() => {
+    return allCampaignPeople.filter(p => Boolean(p.isCoordinator)).length;
+  }, [allCampaignPeople]);
+  const campaignVoterCount = useMemo(() => {
+    return Math.max(0, campaignTotalCount - campaignCoordCount);
+  }, [campaignTotalCount, campaignCoordCount]);
 
   const filteredMembers = useMemo(() => {
     // Se for Coordenador de Campo, vê APENAS seus próprios eleitores cadastrados
@@ -1015,7 +1020,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       />
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 pt-16 lg:pt-8 pb-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-8 pt-20 lg:pt-8 pb-6">
           {isOverdue && (
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -1162,13 +1167,99 @@ export default function Dashboard({ username, organization, profile, onLogout, o
               />
             ) : (
               <div className="space-y-6">
+                {/* ── PLACAR ESTRATÉGICO: Total Geral, Eleitores e Coordenadores ── */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                  {/* Card 1: Total Geral */}
+                  <button
+                    type="button"
+                    onClick={() => setListFilterType('all')}
+                    className={`p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-center sm:items-start justify-between gap-1.5 sm:gap-2 text-left transition-all hover-lift active-scale border shadow-sm ${
+                      listFilterType === 'all'
+                        ? 'bg-slate-950 text-white border-gov-yellow ring-2 ring-gov-yellow/30 shadow-md'
+                        : 'bg-white text-slate-800 border-gray-200 hover:border-slate-300'
+                    }`}
+                    title="Clique para ver todos os registros da campanha"
+                  >
+                    <div className="flex flex-col items-center sm:items-start min-w-0">
+                      <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider ${listFilterType === 'all' ? 'text-gov-yellow' : 'text-slate-500'}`}>
+                        Total Geral
+                      </span>
+                      <span className={`text-xl sm:text-2xl lg:text-3xl font-black tracking-tight mt-0.5 ${listFilterType === 'all' ? 'text-white' : 'text-slate-900'}`}>
+                        {campaignTotalCount}
+                      </span>
+                      <span className={`text-[8px] sm:text-[9px] font-bold uppercase mt-0.5 truncate hidden sm:inline-block ${listFilterType === 'all' ? 'text-slate-300' : 'text-slate-400'}`}>
+                        Toda a Base
+                      </span>
+                    </div>
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 ${listFilterType === 'all' ? 'bg-gov-yellow/20' : 'bg-slate-100'}`}>
+                      <Users className={`w-4 h-4 sm:w-5 sm:h-5 ${listFilterType === 'all' ? 'text-gov-yellow' : 'text-slate-600'}`} />
+                    </div>
+                  </button>
+
+                  {/* Card 2: Eleitores */}
+                  <button
+                    type="button"
+                    onClick={() => setListFilterType('voters')}
+                    className={`p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-center sm:items-start justify-between gap-1.5 sm:gap-2 text-left transition-all hover-lift active-scale border shadow-sm ${
+                      listFilterType === 'voters'
+                        ? 'bg-indigo-700 text-white border-indigo-400 ring-2 ring-indigo-400/30 shadow-md'
+                        : 'bg-white text-slate-800 border-indigo-100 hover:border-indigo-300'
+                    }`}
+                    title="Clique para filtrar apenas os eleitores"
+                  >
+                    <div className="flex flex-col items-center sm:items-start min-w-0">
+                      <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider ${listFilterType === 'voters' ? 'text-indigo-200' : 'text-indigo-600'}`}>
+                        Eleitores
+                      </span>
+                      <span className={`text-xl sm:text-2xl lg:text-3xl font-black tracking-tight mt-0.5 ${listFilterType === 'voters' ? 'text-white' : 'text-indigo-950'}`}>
+                        {campaignVoterCount}
+                      </span>
+                      <span className={`text-[8px] sm:text-[9px] font-bold uppercase mt-0.5 truncate hidden sm:inline-block ${listFilterType === 'voters' ? 'text-indigo-200' : 'text-indigo-500'}`}>
+                        Apoiadores
+                      </span>
+                    </div>
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 ${listFilterType === 'voters' ? 'bg-white/20' : 'bg-indigo-50'}`}>
+                      <User className={`w-4 h-4 sm:w-5 sm:h-5 ${listFilterType === 'voters' ? 'text-white' : 'text-indigo-600'}`} />
+                    </div>
+                  </button>
+
+                  {/* Card 3: Coordenadores */}
+                  <button
+                    type="button"
+                    onClick={() => setListFilterType('coordinators')}
+                    className={`p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-center sm:items-start justify-between gap-1.5 sm:gap-2 text-left transition-all hover-lift active-scale border shadow-sm ${
+                      listFilterType === 'coordinators'
+                        ? 'bg-emerald-700 text-white border-emerald-400 ring-2 ring-emerald-400/30 shadow-md'
+                        : 'bg-white text-slate-800 border-emerald-100 hover:border-emerald-300'
+                    }`}
+                    title="Clique para filtrar apenas os coordenadores"
+                  >
+                    <div className="flex flex-col items-center sm:items-start min-w-0">
+                      <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider ${listFilterType === 'coordinators' ? 'text-emerald-200' : 'text-emerald-600'}`}>
+                        Coordenadores
+                      </span>
+                      <span className={`text-xl sm:text-2xl lg:text-3xl font-black tracking-tight mt-0.5 ${listFilterType === 'coordinators' ? 'text-white' : 'text-emerald-950'}`}>
+                        {campaignCoordCount}
+                      </span>
+                      <span className={`text-[8px] sm:text-[9px] font-bold uppercase mt-0.5 truncate hidden sm:inline-block ${listFilterType === 'coordinators' ? 'text-emerald-200' : 'text-emerald-500'}`}>
+                        Lideranças
+                      </span>
+                    </div>
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 ${listFilterType === 'coordinators' ? 'bg-white/20' : 'bg-emerald-50'}`}>
+                      <ShieldCheck className={`w-4 h-4 sm:w-5 sm:h-5 ${listFilterType === 'coordinators' ? 'text-white' : 'text-emerald-600'}`} />
+                    </div>
+                  </button>
+                </div>
+
                 {/* Header / Toolbar */}
                 <div className="glass-panel p-4 rounded-2xl flex flex-col xl:flex-row justify-between items-center gap-4 hover-lift">
                   <div className="flex flex-col flex-1 w-full lg:min-w-[250px]">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                      <span className="text-[10px] font-black text-gov-blue uppercase tracking-widest">
-                        {isFieldCoordinator ? `Meus Cadastros: ${members.length} eleitores` : `Base: ${allCampaignPeople.length} pessoas na campanha`}
+                      <span className="text-[10px] sm:text-[11px] font-black text-gov-blue uppercase tracking-widest">
+                        {isFieldCoordinator
+                          ? `Meus Cadastros: ${members.length} eleitores`
+                          : `Base Ativa: ${campaignTotalCount} Pessoas (${campaignVoterCount} Eleitores • ${campaignCoordCount} Coordenadores)`}
                       </span>
                     </div>
                     <div className="relative">
@@ -1409,6 +1500,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       onSelect={() => { }}
                       welcomeTemplate={organization?.welcome_template}
                       isCoordinatorView={isFieldCoordinator}
+                      filterType={listFilterType}
+                      onFilterChange={setListFilterType}
                     />
                   </div>
                 ) : activeTab === 'chat' ? (

@@ -30,6 +30,8 @@ interface MemberListProps {
   onSelect: (member: Member) => void;
   welcomeTemplate?: string;
   isCoordinatorView?: boolean;
+  filterType?: FilterType;
+  onFilterChange?: (type: FilterType) => void;
 }
 
 const parseDateSafe = (dateStr?: string | null): number => {
@@ -108,14 +110,21 @@ export default function MemberList({
   onEdit, 
   onSelect, 
   welcomeTemplate,
-  isCoordinatorView = false
+  isCoordinatorView = false,
+  filterType: externalFilterType,
+  onFilterChange
 }: MemberListProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [startY, setStartY] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
-  const [filterType, setFilterType] = useState<FilterType>('all');
+  const [internalFilterType, setInternalFilterType] = useState<FilterType>('all');
+  const filterType = externalFilterType !== undefined ? externalFilterType : internalFilterType;
+  const setFilterType = (val: FilterType) => {
+    setInternalFilterType(val);
+    if (onFilterChange) onFilterChange(val);
+  };
   const [sortMode, setSortMode] = useState<SortMode>('date_desc');
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
@@ -428,9 +437,37 @@ export default function MemberList({
       {/* ── Visualização Mobile em Cards (md:hidden) ────────────────── */}
       <div className="block md:hidden max-h-[600px] overflow-y-auto bg-slate-50 p-2.5 space-y-2.5">
         {displayedMembers.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl border border-gray-200 p-4">
-            <User className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            <p className="text-xs font-black uppercase text-gray-500">Nenhum registro encontrado neste filtro.</p>
+          <div className="text-center py-10 px-4 bg-white rounded-2xl border-2 border-dashed border-gray-200">
+            <User className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+            <p className="text-xs font-black uppercase text-gray-700">Nenhum registro encontrado neste filtro.</p>
+            {filterType === 'voters' && coordCount > 0 && (
+              <div className="mt-2 space-y-2">
+                <p className="text-[11px] text-gray-500">
+                  Os {coordCount} registros atuais estão cadastrados como <strong className="text-emerald-600">Coordenadores</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('all')}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-blue-700 shadow-sm"
+                >
+                  Ver Todos os Registros ({members.length})
+                </button>
+              </div>
+            )}
+            {filterType === 'coordinators' && voterCount > 0 && (
+              <div className="mt-2 space-y-2">
+                <p className="text-[11px] text-gray-500">
+                  Os {voterCount} registros atuais estão cadastrados como <strong className="text-indigo-600">Eleitores</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('all')}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-blue-700 shadow-sm"
+                >
+                  Ver Todos os Registros ({members.length})
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           displayedMembers.map((member, idx) => {
@@ -580,6 +617,33 @@ export default function MemberList({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
+            {displayedMembers.length === 0 && (
+              <tr>
+                <td colSpan={7} className="text-center py-12 px-4 bg-white">
+                  <div className="max-w-md mx-auto space-y-2">
+                    <User className="w-10 h-10 text-gray-300 mx-auto" />
+                    <p className="text-xs font-black uppercase text-gray-700">Nenhum registro encontrado neste filtro.</p>
+                    {filterType === 'voters' && coordCount > 0 && (
+                      <p className="text-[11px] text-gray-500">
+                        Os {coordCount} registros atuais estão cadastrados como <strong className="text-emerald-600">Coordenadores</strong>.
+                      </p>
+                    )}
+                    {filterType === 'coordinators' && voterCount > 0 && (
+                      <p className="text-[11px] text-gray-500">
+                        Os {voterCount} registros atuais estão cadastrados como <strong className="text-indigo-600">Eleitores</strong>.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('all')}
+                      className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold uppercase hover:bg-blue-700 shadow-sm"
+                    >
+                      Ver Todos ({members.length})
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
             {displayedMembers.map((member, idx) => {
               const isCoordinatorMember = !isCoordinatorView && Boolean(member.isCoordinator);
 
