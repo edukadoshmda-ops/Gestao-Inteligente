@@ -996,5 +996,82 @@ export const db = {
         console.warn("Aviso ao salvar configurações:", e);
       }
     }
+  },
+
+  /**
+   * Sincroniza a base de dados do computador com a nuvem (Supabase)
+   * Garante que eleitores e coordenadores existam no banco para que apareçam no celular
+   */
+  async syncLocalToCloud(members: Member[], coordinators: Coordinator[], orgId?: string): Promise<{ syncedMembers: number; syncedCoords: number }> {
+    const client = getClient();
+    if (!client || client.isMock) return { syncedMembers: 0, syncedCoords: 0 };
+    const currentOrg = orgId || 'f82a9ced-1547-477a-8f7a-d08231e7bd30';
+
+    let syncedCoords = 0;
+    let syncedMembers = 0;
+
+    // 1. Sincroniza Coordenadores primeiro (devido à chave estrangeira)
+    if (coordinators && coordinators.length > 0) {
+      const coordRows = coordinators.map(c => ({
+        id: c.id,
+        name: c.name,
+        email: c.email || null,
+        neighborhood: c.neighborhood || null,
+        city: c.city || null,
+        voterId: c.voterId || null,
+        voterSection: c.voterSection || null,
+        voterZone: c.voterZone || null,
+        photo: c.photo || null,
+        network_id: c.network_id || null,
+        role: (c as any).role || 'coordinator',
+        org_id: c.org_id || currentOrg
+      }));
+
+      const COORD_BATCH = 200;
+      for (let i = 0; i < coordRows.length; i += COORD_BATCH) {
+        const batch = coordRows.slice(i, i + COORD_BATCH);
+        const { error } = await client.from('coordinators').upsert(batch, { onConflict: 'id' });
+        if (!error) syncedCoords += batch.length;
+        else console.warn('Aviso ao sincronizar coordenadores com a nuvem:', error);
+      }
+    }
+
+    // 2. Sincroniza Membros em lotes
+    if (members && members.length > 0) {
+      const memberRows = members.map(m => toSupabaseMemberRow(m, currentOrg));
+      const MEMBER_BATCH = 250;
+      for (let i = 0; i < memberRows.length; i += MEMBER_BATCH) {
+        const batch = memberRows.slice(i, i + MEMBER_BATCH);
+        const { error } = await client.from('members').upsert(batch, { onConflict: 'id' });
+        if (!error) {
+          syncedMembers += batch.length;
+        } else {
+          // Se falhou por foreign key em coordinatorId, tenta salvar sem coordinatorId
+          console.warn('Tentando lote de membros com fallback de vínculo...', error?.message);
+          const fallbackBatch = batch.map((r: any) => ({ ...r, coordinatorId: null }));
+          const { error: fallbackError } = await client.from('members').upsert(fallbackBatch, { onConflict: 'id' });
+          if (!fallbackError) syncedMembers += fallbackBatch.length;
+        }
+      }
+    }
+
+    this.invalidateMembersCache(currentOrg);
+    this.invalidateCoordinatorsCache(currentOrg);
+
+    return { syncedMembers, syncedCoords };
+  },
+
+  /**
+   * Força a busca direta da nuvem, descartando o cache local desatualizado
+   */
+  async forceFetchFromCloud(orgId?: string): Promise<{ members: Member[]; coordinators: Coordinator[] }> {
+    const currentOrg = orgId || 'f82a9ced-1547-477a-8f7a-d08231e7bd30';
+    this.invalidateMembersCache(currentOrg);
+    this.invalidateCoordinatorsCache(currentOrg);
+    const [coordinators, members] = await Promise.all([
+      this.getCoordinators(currentOrg, true),
+      this.getMembers(currentOrg, true)
+    ]);
+    return { members, coordinators };
   }
 };

@@ -8,7 +8,7 @@ import CoordinatorForm from './CoordinatorForm';
 import CoordinatorList from './CoordinatorList';
 import Sidebar from './Sidebar';
 import Toast from './Toast';
-import { Plus, LogOut, Search, BarChart3, Download, X, Users, User, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet } from 'lucide-react';
+import { Plus, LogOut, Search, BarChart3, Download, X, Users, User, Hash, Clock, Upload, Share2, Copy, Check, ShieldCheck, MapPin, MessageSquare, AlertTriangle, AlertCircle, Gift, Smartphone, Database, Trash2, ArrowLeft, CreditCard, Target, Sparkles, Settings as SettingsIcon, FileSpreadsheet, CloudUpload, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, normalizeName, cleanPhone, deduplicateMemberList } from '../lib/db';
 import { supabase, supabaseAdmin } from '../lib/supabase';
@@ -78,6 +78,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   const coordExcelInputRef = useRef<HTMLInputElement>(null);
   const [isImportingCoordExcel, setIsImportingCoordExcel] = useState(false);
   const [isCloudRestricted, setIsCloudRestricted] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
 
   const isSuperAdmin = username.toLowerCase().includes('edukadoshmda') || 
                        username.toLowerCase() === 'admin' || 
@@ -467,6 +468,22 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       // Fallback padrão
       setCoordinators(allCoordinators);
       setMembers(allMembers);
+
+      // Auto-sincronização para a nuvem: se este computador possui eleitores locais
+      if (allMembers.length > 0 && (isSuperAdmin || profile.role === 'general_coordination' || profile.role === 'candidate')) {
+        const lastSyncKey = `@AppGestao:lastAutoSync_${currentOrgId}`;
+        const lastSyncTime = Number(localStorage.getItem(lastSyncKey) || 0);
+        if (Date.now() - lastSyncTime > 10 * 60 * 1000) {
+          localStorage.setItem(lastSyncKey, String(Date.now()));
+          db.syncLocalToCloud(allMembers, allCoordinators, currentOrgId)
+            .then(res => {
+              if (res.syncedMembers > 0) {
+                console.log(`☁️ Nuvem sincronizada com sucesso: ${res.syncedMembers} eleitores e ${res.syncedCoords} coordenadores.`);
+              }
+            })
+            .catch(console.warn);
+        }
+      }
     }).catch(err => {
       console.warn("Aviso ao carregar dados do dashboard:", err);
     });
@@ -855,6 +872,33 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     } catch (err: any) {
       console.error('Erro ao apagar coordenadores:', err);
       showToast('Erro ao limpar alguns dados da nuvem.');
+    }
+  };
+
+  const handleSyncToCloud = async () => {
+    setIsSyncingCloud(true);
+    const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id || 'f82a9ced-1547-477a-8f7a-d08231e7bd30';
+
+    try {
+      // Se este aparelho tiver dados (ex: 2343 eleitores no computador)
+      if (members.length > 0) {
+        showToast(`☁️ Enviando ${members.length} eleitores e ${coordinators.length} coordenadores para a nuvem...`);
+        const res = await db.syncLocalToCloud(members, coordinators, currentOrgId);
+        showToast(`✅ Nuvem atualizada! ${res.syncedMembers} eleitores e ${res.syncedCoords} coordenadores disponíveis para o celular.`);
+        await loadDashboardData(true);
+      } else {
+        // Se estiver zerado (ex: no celular), puxa da nuvem
+        showToast('☁️ Baixando base completa da nuvem...');
+        const fresh = await db.forceFetchFromCloud(currentOrgId);
+        setMembers(fresh.members);
+        setCoordinators(fresh.coordinators);
+        showToast(`✅ Base sincronizada da nuvem! ${fresh.members.length} eleitores e ${fresh.coordinators.length} coordenadores.`);
+      }
+    } catch (err: any) {
+      console.error('Erro na sincronização:', err);
+      showToast('⚠️ Erro ao sincronizar com a nuvem.');
+    } finally {
+      setIsSyncingCloud(false);
     }
   };
 
@@ -1335,6 +1379,16 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       title="Copiar e compartilhar link de cadastro de eleitores"
                     >
                       <Share2 className="w-3.5 h-3.5" /> Link do Eleitor
+                    </button>
+
+                    <button
+                      onClick={handleSyncToCloud}
+                      disabled={isSyncingCloud}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 shadow-md rounded-2xl transition-all border border-blue-400/40"
+                      title={members.length > 0 ? "Enviar eleitores e coordenadores do computador para o celular" : "Baixar eleitores e coordenadores da nuvem"}
+                    >
+                      <CloudUpload className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                      <span>{isSyncingCloud ? 'Sincronizando...' : (members.length > 0 ? 'Nuvem ➔ Celular' : 'Atualizar Nuvem')}</span>
                     </button>
 
                     {permissions.canCreateMembers && (
