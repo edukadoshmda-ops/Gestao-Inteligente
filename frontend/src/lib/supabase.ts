@@ -1,12 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-const supabaseServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
+const ACTIVE_SUPABASE_URL = 'https://desfitrpkyygclndagat.supabase.co';
+const ACTIVE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlc2ZpdHJwa3l5Z2NsbmRhZ2F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3NDk1NDQsImV4cCI6MjEwNTMyNTU0NH0.k_me7yAlQAtYY4Xrr79Yqy79fooIfthz3KqIjhalZV8';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️ Supabase: Variáveis de ambiente não encontradas. Verifique o arquivo .env');
-}
+let envUrl = import.meta.env.VITE_SUPABASE_URL || '';
+let envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+let envServiceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
+
+// Detecta se a URL é vazia ou se aponta para projetos anteriores bloqueados por cota (402)
+const isBlockedOrEmpty = !envUrl || 
+  envUrl.includes('imsvsscxiilhewyahenn') || 
+  envUrl.includes('vvjlbpkknpyvtnoiccic');
+
+const supabaseUrl = isBlockedOrEmpty ? ACTIVE_SUPABASE_URL : envUrl;
+const supabaseAnonKey = isBlockedOrEmpty ? ACTIVE_SUPABASE_ANON_KEY : envAnonKey;
+const supabaseServiceRoleKey = isBlockedOrEmpty ? '' : envServiceRoleKey;
 
 // Apenas inicializa o cliente se as variáveis estiverem presentes (para evitar quebrar em dev sem o .env)
 const mockSupabase = {
