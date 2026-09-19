@@ -1,5 +1,5 @@
 import { Coordinator, Member } from '../types';
-import { User, Trash2, Edit3, MapPin, ShieldCheck, Users, FileSpreadsheet } from 'lucide-react';
+import { User, Trash2, Edit3, MapPin, ShieldCheck, Users, FileSpreadsheet, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
 import { matchMemberToCoordinator, exportCoordinatorExcel } from '../lib/coordinatorUtils';
 
@@ -9,6 +9,7 @@ interface CoordinatorListProps {
   onDelete?: (id: string) => void;
   onEdit: (coordinator: Coordinator) => void;
   onSelect: (coordinator: Coordinator) => void;
+  onImportExcel?: (event: React.ChangeEvent<HTMLInputElement>, coordinator: Coordinator) => void;
   candidateName?: string;
   onNotify?: (msg: string) => void;
 }
@@ -19,6 +20,7 @@ export default function CoordinatorList({
   onDelete, 
   onEdit, 
   onSelect,
+  onImportExcel,
   candidateName,
   onNotify 
 }: CoordinatorListProps) {
@@ -117,22 +119,39 @@ export default function CoordinatorList({
               </div>
             </div>
 
-            {/* Barra Inferior com Download da Planilha & Relatório Individual */}
+            {/* Barra Inferior com Download da Planilha, Upload & Relatório Individual */}
             <div className="flex border-t border-gray-100 bg-gray-50/50">
               <button
                 onClick={() => exportCoordinatorExcel(coordinator, members, candidateName, onNotify)}
-                className="flex-1 py-3 px-3 bg-emerald-600 text-white font-black uppercase text-[9px] sm:text-[10px] tracking-wider hover:bg-emerald-700 active:bg-emerald-800 transition-all flex items-center justify-center gap-1.5 border-r border-emerald-700/40"
+                className="flex-1 py-3 px-2 bg-emerald-600 text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-emerald-700 active:bg-emerald-800 transition-all flex items-center justify-center gap-1 border-r border-emerald-700/40"
                 title={`Baixar planilha Excel com os apoiadores de ${coordinator.name}`}
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-200 shrink-0" />
-                <span>Baixar Planilha ({memberCount})</span>
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+                <span>Baixar ({memberCount})</span>
               </button>
+
+              {onImportExcel && (
+                <label
+                  className="flex-1 py-3 px-2 bg-blue-600 text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-blue-700 active:bg-blue-800 transition-all flex items-center justify-center gap-1 cursor-pointer border-r border-blue-700/40"
+                  title={`Subir planilha para vincular automaticamente a ${coordinator.name}`}
+                >
+                  <Upload className="w-3.5 h-3.5 text-blue-200 shrink-0" />
+                  <span>Subir</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => onImportExcel(e, coordinator)}
+                    className="hidden"
+                  />
+                </label>
+              )}
+
               <button 
                 onClick={() => onSelect(coordinator)}
-                className="flex-1 py-3 px-3 bg-gov-blue text-white font-black uppercase text-[9px] sm:text-[10px] tracking-wider hover:bg-blue-800 transition-all flex items-center justify-center gap-1"
+                className="flex-1 py-3 px-2 bg-gov-blue text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-blue-800 transition-all flex items-center justify-center gap-1"
                 title="Ver relatório individual de eleitores"
               >
-                <span>Ver Relatório</span>
+                <span>Relatório</span>
               </button>
             </div>
           </motion.div>

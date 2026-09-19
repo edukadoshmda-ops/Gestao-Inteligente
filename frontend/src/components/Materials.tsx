@@ -704,7 +704,7 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
                       <select 
                         required 
                         value={formData.category} 
-                        onChange={e => setFormData({...formData, category: e.target.value})} 
+                        onChange={e => setFormData({...formData, category: e.target.value as any})} 
                         className="w-full bg-gray-50 border-2 border-gray-100 p-3 text-xs font-bold outline-none focus:border-gov-blue rounded-2xl"
                       >
                         <option value="project">Projeto Estratégico</option>
@@ -719,7 +719,7 @@ export default function Materials({ isAdmin = true, organization, org_id }: Mate
                       <select 
                         required 
                         value={formData.priority} 
-                        onChange={e => setFormData({...formData, priority: e.target.value})} 
+                        onChange={e => setFormData({...formData, priority: e.target.value as any})} 
                         className="w-full bg-gray-50 border-2 border-gray-100 p-3 text-xs font-bold outline-none focus:border-gov-blue rounded-2xl"
                       >
                         <option value="info">Informativo (Padrão)</option>

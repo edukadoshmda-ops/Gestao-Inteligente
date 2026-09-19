@@ -217,91 +217,6 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     setShowBulkWhatsAppModal(false);
   };
 
-  const handleImportExcelForCoordinator = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-    coordinator: Coordinator
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsImportingCoordExcel(true);
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-
-      if (!rows || rows.length < 1) {
-        showToast("Arquivo vazio ou sem dados legíveis.");
-        return;
-      }
-
-      let nameCol = -1;
-      let phoneCol = -1;
-      let voterCol = -1;
-      let emailCol = -1;
-      let neighborhoodCol = -1;
-
-      for (let i = 0; i < Math.min(rows.length, 5); i++) {
-        rows[i].forEach((cell, idx) => {
-          const val = cell?.toString().toLowerCase() || "";
-          if (nameCol === -1 && (val.includes("nome") || val.includes("eleitor") || (val.length > 5 && isNaN(Number(val))))) nameCol = idx;
-          if (phoneCol === -1 && (val.includes("tel") || val.includes("fone") || val.includes("cel") || val.includes("zap") || val.includes("whatsapp"))) phoneCol = idx;
-          if (voterCol === -1 && (val.includes("titulo") || val.includes("título") || val.includes("voter"))) voterCol = idx;
-          if (emailCol === -1 && (val.includes("email") || val.includes("e-mail"))) emailCol = idx;
-          if (neighborhoodCol === -1 && (val.includes("bairro") || val.includes("regiao") || val.includes("região"))) neighborhoodCol = idx;
-        });
-      }
-      if (nameCol === -1) nameCol = 0;
-      if (phoneCol === -1) phoneCol = 1;
-
-      const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id;
-      const newImported: Member[] = [];
-
-      for (const row of rows) {
-        if (!row || row.length === 0) continue;
-        const rawName = row[nameCol]?.toString().trim() || "";
-        const normName = normalizeName(rawName);
-        if (normName.includes("relatorio") || normName.includes("total") || normName.length < 2) continue;
-        if (normName === "nome completo" || normName === "nome") continue;
-
-        const rawPhone = phoneCol >= 0 ? (row[phoneCol]?.toString() || "") : "";
-        const phone = cleanPhone(rawPhone);
-        const voterId = voterCol >= 0 ? (row[voterCol]?.toString().trim() || "") : "";
-        const email = emailCol >= 0 ? (row[emailCol]?.toString().trim().toLowerCase() || "") : "";
-        const neighborhood = neighborhoodCol >= 0 ? (row[neighborhoodCol]?.toString().trim() || "") : "";
-
-        newImported.push({
-          id: Math.random().toString(36).substring(2, 11),
-          name: rawName,
-          phone: phone || rawPhone,
-          email: email,
-          voterId: voterId || undefined,
-          neighborhood: neighborhood || coordinator.neighborhood || '',
-          gender: "Não Informado",
-          coordinatorId: coordinator.id,
-          org_id: coordinator.org_id || currentOrgId,
-          createdAt: new Date().toISOString(),
-        });
-      }
-
-      if (newImported.length > 0) {
-        const combined = [...newImported, ...members];
-        const { deduplicated } = deduplicateMemberList(combined);
-        await saveMembers(deduplicated);
-        showToast(`✅ ${newImported.length} eleitores importados e vinculados a ${coordinator.name}!`);
-      } else {
-        showToast('Nenhum eleitor válido encontrado na planilha.');
-      }
-    } catch (err) {
-      console.error('Erro na importação para coordenador:', err);
-      showToast('Erro ao processar planilha Excel.');
-    } finally {
-      setIsImportingCoordExcel(false);
-      if (event.target) event.target.value = '';
-    }
-  };
-
   const handleExportVCF = () => {
     const phonesToExport = filteredMembers.filter(m => m.phone && m.phone.length >= 8);
     if (phonesToExport.length === 0) {
@@ -470,7 +385,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       setMembers(allMembers);
 
       // Auto-sincronização para a nuvem: se este computador possui eleitores locais
-      if (allMembers.length > 0 && (isSuperAdmin || profile.role === 'general_coordination' || profile.role === 'candidate')) {
+      if (allMembers.length > 0 && isCampaignAdmin) {
         const lastSyncKey = `@AppGestao:lastAutoSync_${currentOrgId}`;
         const lastSyncTime = Number(localStorage.getItem(lastSyncKey) || 0);
         if (Date.now() - lastSyncTime > 10 * 60 * 1000) {
@@ -823,7 +738,17 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
   };
 
-  const { handleImportExcel, handleExportExcel, isExporting } = useExcelTools(members, saveMembers, showToast, organization);
+  const {
+    handleImportExcel,
+    handleImportExcelForCoordinator,
+    handleExportExcel,
+    isExporting
+  } = useExcelTools(members, saveMembers, showToast, organization, {
+    coordinators,
+    loggedInCoordinator,
+    activeCoordinator,
+    currentOrgId: effectiveOrgId
+  });
 
   const handleClearAll = async () => {
     if (!confirm('Deseja REALMENTE apagar TODOS os eleitores cadastrados? Esta ação não pode ser desfeita.')) return;
@@ -1499,6 +1424,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                           onNotify={showToast}
                           onEdit={(c) => { setSelectedCoordinator(c); setIsAddingCoordinator(true); }}
                           onDelete={permissions.canDeleteCoordinators ? handleDeleteCoordinator : undefined}
+                          onImportExcel={handleImportExcelForCoordinator}
                           onSelect={(c) => {
                             setActiveCoordinator(c);
                             setActiveTab('list');
