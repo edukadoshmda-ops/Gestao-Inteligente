@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Coordinator, Member } from '../types';
 import { User, Trash2, Edit3, MapPin, ShieldCheck, Users, FileSpreadsheet, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -24,6 +25,8 @@ export default function CoordinatorList({
   candidateName,
   onNotify 
 }: CoordinatorListProps) {
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
   if (coordinators.length === 0) {
     return (
       <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gov-blue/20">
@@ -131,19 +134,26 @@ export default function CoordinatorList({
               </button>
 
               {onImportExcel && (
-                <label
-                  className="flex-1 py-3 px-2 bg-blue-600 text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-blue-700 active:bg-blue-800 transition-all flex items-center justify-center gap-1 cursor-pointer border-r border-blue-700/40"
-                  title={`Subir planilha para vincular automaticamente a ${coordinator.name}`}
-                >
-                  <Upload className="w-3.5 h-3.5 text-blue-200 shrink-0" />
-                  <span>Subir</span>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => inputRefs.current[coordinator.id]?.click()}
+                    className="flex-1 py-3 px-2 bg-blue-600 text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-blue-700 active:bg-blue-800 transition-all flex items-center justify-center gap-1 cursor-pointer border-r border-blue-700/40"
+                    title={`Subir planilha para vincular automaticamente a ${coordinator.name}`}
+                  >
+                    <Upload className="w-3.5 h-3.5 text-blue-200 shrink-0" />
+                    <span>Subir</span>
+                  </button>
                   <input
+                    ref={(el) => {
+                      inputRefs.current[coordinator.id] = el;
+                    }}
                     type="file"
                     accept=".xlsx,.xls,.csv"
                     onChange={(e) => onImportExcel(e, coordinator)}
                     className="hidden"
                   />
-                </label>
+                </>
               )}
 
               <button 

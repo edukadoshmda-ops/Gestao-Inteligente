@@ -813,6 +813,8 @@ export const db = {
           voterSection: cleanCoord.voterSection || null,
           voterZone: cleanCoord.voterZone || null,
           photo: cleanCoord.photo || null,
+          whatsapp: cleanCoord.whatsapp || null,
+          password: cleanCoord.password || null,
           network_id: cleanCoord.network_id || null,
           role: (cleanCoord as any).role || 'coordinator',
           org_id: cleanCoord.org_id || targetOrg || undefined
@@ -865,6 +867,8 @@ export const db = {
           voterSection: c.voterSection || null,
           voterZone: c.voterZone || null,
           photo: c.photo || null,
+          whatsapp: c.whatsapp || null,
+          password: c.password || null,
           network_id: c.network_id || null,
           role: (c as any).role || 'coordinator',
           org_id: c.org_id || orgId || undefined

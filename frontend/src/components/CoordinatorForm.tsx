@@ -56,7 +56,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white p-8 border-b-4 border-gov-yellow shadow-2xl max-w-2xl mx-auto rounded-2xl"
+      className="bg-white p-4 sm:p-8 border-b-4 border-gov-yellow shadow-2xl max-w-2xl mx-auto rounded-2xl"
     >
       <div className="flex justify-between items-center mb-8 border-b border-gray-100 pb-6 rounded-2xl">
         <div>
@@ -149,7 +149,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gov-blue uppercase tracking-widest">Bairro</label>
               <input
@@ -170,7 +170,7 @@ export default function CoordinatorForm({ onSave, onCancel, initialData, network
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 p-6 bg-gov-bg border-l-4 border-gov-yellow rounded-2xl">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 sm:p-6 bg-gov-bg border-l-4 border-gov-yellow rounded-2xl">
             <div className="space-y-2">
               <label className="text-[9px] font-black text-blue-700 uppercase">Título</label>
               <input

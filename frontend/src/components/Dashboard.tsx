@@ -915,13 +915,28 @@ export default function Dashboard({ username, organization, profile, onLogout, o
   }, [members, coordinators, isFieldCoordinator, isMemberMatchingCoordinator]);
 
   // Totais estratégicos para os cards do topo do painel
-  const campaignTotalCount = allCampaignPeople.length;
+  const coordinatorMatchCountInMembers = useMemo(() => {
+    const matched = new Set<string>();
+
+    members.forEach(member => {
+      const found = coordinators.find(coord => matchMemberToCoordinator(member, coord));
+      if (found && found.id) matched.add(String(found.id));
+    });
+
+    return matched.size;
+  }, [members, coordinators, matchMemberToCoordinator]);
+
   const campaignCoordCount = useMemo(() => {
-    return allCampaignPeople.filter(p => Boolean(p.isCoordinator)).length;
-  }, [allCampaignPeople]);
+    return coordinators.length;
+  }, [coordinators]);
+
   const campaignVoterCount = useMemo(() => {
-    return Math.max(0, campaignTotalCount - campaignCoordCount);
-  }, [campaignTotalCount, campaignCoordCount]);
+    return Math.max(0, members.length - coordinatorMatchCountInMembers);
+  }, [members, coordinatorMatchCountInMembers]);
+
+  const campaignTotalCount = useMemo(() => {
+    return campaignVoterCount + campaignCoordCount;
+  }, [campaignVoterCount, campaignCoordCount]);
 
   const filteredMembers = useMemo(() => {
     // Se for Coordenador de Campo, vê APENAS seus próprios eleitores cadastrados
