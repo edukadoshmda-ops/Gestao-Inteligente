@@ -371,7 +371,8 @@ export const db = {
             .from('members')
             .select(SUPABASE_MEMBER_COLS_STR)
             .range(from, from + pageSize - 1)
-            .order('createdAt', { ascending: false });
+            .order('createdAt', { ascending: false })
+            .order('id', { ascending: true });
 
           if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
             query = query.eq('org_id', orgId);
@@ -1076,6 +1077,22 @@ export const db = {
       this.getCoordinators(currentOrg, true),
       this.getMembers(currentOrg, true)
     ]);
+
+    try {
+      if (members && members.length > 0) {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(members));
+        if (currentOrg && currentOrg !== 'demo-org') {
+          localStorage.setItem(`@AppGestao:members_${currentOrg}`, JSON.stringify(members));
+        }
+      }
+      if (coordinators && coordinators.length > 0) {
+        localStorage.setItem(COORD_STORAGE_KEY, JSON.stringify(coordinators));
+        if (currentOrg && currentOrg !== 'demo-org') {
+          localStorage.setItem(`@AppGestao:coordinators_${currentOrg}`, JSON.stringify(coordinators));
+        }
+      }
+    } catch {}
+
     return { members, coordinators };
   }
 };

@@ -16,3 +16,6 @@ coverage/
 
 # Keep frontend .env.example for reference
 !frontend/.env.example
+
+# Unrelated projects
+PROJETO POSTADOR DO YUTUB/

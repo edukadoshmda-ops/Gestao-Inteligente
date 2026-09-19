@@ -134,26 +134,21 @@ export default function CoordinatorList({
               </button>
 
               {onImportExcel && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => inputRefs.current[coordinator.id]?.click()}
-                    className="flex-1 py-3 px-2 bg-blue-600 text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-blue-700 active:bg-blue-800 transition-all flex items-center justify-center gap-1 cursor-pointer border-r border-blue-700/40"
-                    title={`Subir planilha para vincular automaticamente a ${coordinator.name}`}
-                  >
-                    <Upload className="w-3.5 h-3.5 text-blue-200 shrink-0" />
-                    <span>Subir</span>
-                  </button>
+                <label
+                  htmlFor={`upload-coord-${coordinator.id}`}
+                  className="flex-1 py-3 px-2 bg-blue-600 text-white font-black uppercase text-[8.5px] sm:text-[9.5px] tracking-wider hover:bg-blue-700 active:bg-blue-800 transition-all flex items-center justify-center gap-1 cursor-pointer border-r border-blue-700/40 select-none m-0"
+                  title={`Subir planilha para vincular automaticamente a ${coordinator.name}`}
+                >
+                  <Upload className="w-3.5 h-3.5 text-blue-200 shrink-0" />
+                  <span>Subir</span>
                   <input
-                    ref={(el) => {
-                      inputRefs.current[coordinator.id] = el;
-                    }}
+                    id={`upload-coord-${coordinator.id}`}
                     type="file"
-                    accept=".xlsx,.xls,.csv"
+                    accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv,text/comma-separated-values"
                     onChange={(e) => onImportExcel(e, coordinator)}
-                    className="hidden"
+                    className="sr-only"
                   />
-                </>
+                </label>
               )}
 
               <button 

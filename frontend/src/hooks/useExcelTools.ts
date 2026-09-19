@@ -19,6 +19,7 @@ export function useExcelTools(
   options?: ExcelToolsOptions
 ) {
   const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   /**
    * Identifica o coordenador alvo de forma inteligente:
@@ -97,6 +98,7 @@ export function useExcelTools(
     file: File,
     forcedCoordinator?: Coordinator | null
   ) => {
+    setIsImporting(true);
     try {
       const data = new Uint8Array(await file.arrayBuffer());
       const workbook = XLSX.read(data, { type: 'array', cellDates: true });
@@ -332,6 +334,8 @@ export function useExcelTools(
     } catch (err) {
       console.error('Erro ao importar planilha:', err);
       showToast('❌ Erro ao ler a planilha. Verifique o formato do arquivo.');
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -464,6 +468,7 @@ export function useExcelTools(
     handleImportExcelForCoordinator,
     processSpreadsheet,
     handleExportExcel,
-    isExporting
+    isExporting,
+    isImporting
   };
 }

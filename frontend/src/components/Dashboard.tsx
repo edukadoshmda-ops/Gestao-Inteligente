@@ -742,7 +742,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     handleImportExcel,
     handleImportExcelForCoordinator,
     handleExportExcel,
-    isExporting
+    isExporting,
+    isImporting
   } = useExcelTools(members, saveMembers, showToast, organization, {
     coordinators,
     loggedInCoordinator,
@@ -805,20 +806,16 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     const currentOrgId = organization?.id || profile?.organization_id || profile?.org_id || 'f82a9ced-1547-477a-8f7a-d08231e7bd30';
 
     try {
-      // Se este aparelho tiver dados (ex: 2343 eleitores no computador)
-      if (members.length > 0) {
-        showToast(`☁️ Enviando ${members.length} eleitores e ${coordinators.length} coordenadores para a nuvem...`);
-        const res = await db.syncLocalToCloud(members, coordinators, currentOrgId);
-        showToast(`✅ Nuvem atualizada! ${res.syncedMembers} eleitores e ${res.syncedCoords} coordenadores disponíveis para o celular.`);
-        await loadDashboardData(true);
-      } else {
-        // Se estiver zerado (ex: no celular), puxa da nuvem
-        showToast('☁️ Baixando base completa da nuvem...');
-        const fresh = await db.forceFetchFromCloud(currentOrgId);
-        setMembers(fresh.members);
-        setCoordinators(fresh.coordinators);
-        showToast(`✅ Base sincronizada da nuvem! ${fresh.members.length} eleitores e ${fresh.coordinators.length} coordenadores.`);
+      showToast('☁️ Sincronizando com a nuvem...');
+      // 1. Envia registros locais pendentes para a nuvem
+      if (members.length > 0 || coordinators.length > 0) {
+        await db.syncLocalToCloud(members, coordinators, currentOrgId);
       }
+      // 2. Busca a base 100% atualizada diretamente da nuvem, descartando qualquer cache defasado
+      const fresh = await db.forceFetchFromCloud(currentOrgId);
+      setMembers(fresh.members);
+      setCoordinators(fresh.coordinators);
+      showToast(`✅ Base 100% sincronizada! ${fresh.members.length} eleitores e ${fresh.coordinators.length} coordenadores.`);
     } catch (err: any) {
       console.error('Erro na sincronização:', err);
       showToast('⚠️ Erro ao sincronizar com a nuvem.');
@@ -914,29 +911,24 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     return list;
   }, [members, coordinators, isFieldCoordinator, isMemberMatchingCoordinator]);
 
-  // Totais estratégicos para os cards do topo do painel
-  const coordinatorMatchCountInMembers = useMemo(() => {
-    const matched = new Set<string>();
-
-    members.forEach(member => {
-      const found = coordinators.find(coord => matchMemberToCoordinator(member, coord));
-      if (found && found.id) matched.add(String(found.id));
-    });
-
-    return matched.size;
-  }, [members, coordinators, matchMemberToCoordinator]);
-
+  // Totais estratégicos para os cards do topo do painel (100% alinhados à lista e sem discrepâncias)
   const campaignCoordCount = useMemo(() => {
     return coordinators.length;
   }, [coordinators]);
 
   const campaignVoterCount = useMemo(() => {
-    return Math.max(0, members.length - coordinatorMatchCountInMembers);
-  }, [members, coordinatorMatchCountInMembers]);
+    if (isFieldCoordinator) {
+      return members.length;
+    }
+    return allCampaignPeople.filter(p => !p.isCoordinator).length;
+  }, [allCampaignPeople, members, isFieldCoordinator]);
 
   const campaignTotalCount = useMemo(() => {
-    return campaignVoterCount + campaignCoordCount;
-  }, [campaignVoterCount, campaignCoordCount]);
+    if (isFieldCoordinator) {
+      return members.length;
+    }
+    return allCampaignPeople.length;
+  }, [allCampaignPeople, members, isFieldCoordinator]);
 
   const filteredMembers = useMemo(() => {
     // Se for Coordenador de Campo, vê APENAS seus próprios eleitores cadastrados
@@ -1259,8 +1251,6 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                   </div>
                   
                   <div className="grid grid-cols-2 sm:flex sm:flex-wrap justify-start xl:justify-end gap-2 w-full xl:w-auto">
-                    <input type="file" id="xl-import" accept=".xlsx,.xls,.csv" onChange={handleImportExcel} className="hidden" />
-
                     {isSuperAdmin && onToggleRoot && (
                       <button
                         onClick={onToggleRoot}
@@ -1287,12 +1277,21 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       <MessageSquare className="w-3.5 h-3.5" /> Transmissão
                     </button>
 
-                    <button
-                      onClick={() => document.getElementById('xl-import')?.click()}
-                      className="bg-white text-gov-blue border border-gov-blue px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-blue-50 transition-all rounded-2xl"
+                    <label
+                      htmlFor="xl-import"
+                      className="bg-white text-gov-blue border border-gov-blue px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 hover:bg-blue-50 transition-all rounded-2xl cursor-pointer select-none m-0"
+                      title="Importar planilha de eleitores (.xlsx, .xls, .csv)"
                     >
-                      <Upload className="w-3.5 h-3.5" /> Importar
-                    </button>
+                      <Upload className={`w-3.5 h-3.5 ${isImporting ? 'animate-spin' : ''}`} />
+                      <span>{isImporting ? 'Importando...' : 'Importar'}</span>
+                      <input
+                        type="file"
+                        id="xl-import"
+                        accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv,text/comma-separated-values"
+                        onChange={handleImportExcel}
+                        className="sr-only"
+                      />
+                    </label>
 
                     <button
                       onClick={handleExportExcel}
@@ -1325,10 +1324,10 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                       onClick={handleSyncToCloud}
                       disabled={isSyncingCloud}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 shadow-md rounded-2xl transition-all border border-blue-400/40"
-                      title={members.length > 0 ? "Enviar eleitores e coordenadores do computador para o celular" : "Baixar eleitores e coordenadores da nuvem"}
+                      title="Sincronizar base completa entre computador e celular"
                     >
                       <CloudUpload className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-                      <span>{isSyncingCloud ? 'Sincronizando...' : (members.length > 0 ? 'Nuvem ➔ Celular' : 'Atualizar Nuvem')}</span>
+                      <span>{isSyncingCloud ? 'Sincronizando...' : 'Nuvem ⇄ Celular'}</span>
                     </button>
 
                     {permissions.canCreateMembers && (
@@ -1460,22 +1459,21 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            type="file"
-                            ref={coordExcelInputRef}
-                            accept=".xlsx,.xls,.csv"
-                            onChange={(e) => handleImportExcelForCoordinator(e, activeCoordinator)}
-                            className="hidden"
-                          />
-                          <button
-                            onClick={() => coordExcelInputRef.current?.click()}
-                            disabled={isImportingCoordExcel}
-                            className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0 border border-blue-400/30"
+                          <label
+                            htmlFor="coord-excel-active"
+                            className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0 border border-blue-400/30 cursor-pointer select-none m-0"
                             title={`Fazer upload de planilha Excel de apoiadores para ${activeCoordinator.name}`}
                           >
-                            <Upload className="w-4 h-4 text-blue-200" />
-                            {isImportingCoordExcel ? 'Subindo...' : 'Subir Planilha (.xlsx)'}
-                          </button>
+                            <Upload className={`w-4 h-4 text-blue-200 ${isImporting ? 'animate-spin' : ''}`} />
+                            <span>{isImporting ? 'Subindo...' : 'Subir Planilha (.xlsx)'}</span>
+                            <input
+                              id="coord-excel-active"
+                              type="file"
+                              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv,text/comma-separated-values"
+                              onChange={(e) => handleImportExcelForCoordinator(e, activeCoordinator)}
+                              className="sr-only"
+                            />
+                          </label>
                           <button
                             onClick={() => exportCoordinatorExcel(activeCoordinator, members, organization?.candidate_name, showToast)}
                             className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center gap-2 shadow-sm transition-all shrink-0"
