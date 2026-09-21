@@ -356,6 +356,56 @@ export function useExcelTools(
     event.target.value = '';
   };
 
+  // Formata telefone exatamente igual ao exibido no app
+  const formatPhoneForExport = (phone: string | null | undefined): string => {
+    if (!phone) return '';
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 11) {
+      return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
+    }
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 6)}-${cleaned.slice(6)}`;
+    }
+    return phone;
+  };
+
+  // Recalcula a idade a partir da data de nascimento (mesma lógica do MemberForm)
+  const recalcAge = (birthDate?: string): number | string => {
+    if (!birthDate) return '';
+    // Interpreta YYYY-MM-DD como data LOCAL (sem offset de timezone)
+    const parts = birthDate.split('-');
+    if (parts.length !== 3) return '';
+    const birth = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    if (isNaN(birth.getTime())) return '';
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age >= 0 ? age : '';
+  };
+
+  // Formata data de nascimento sem bug de timezone (YYYY-MM-DD → DD/MM/YYYY)
+  const formatBirthDate = (birthDate?: string): string => {
+    if (!birthDate) return '';
+    const parts = birthDate.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    // Fallback para outros formatos
+    try {
+      return new Date(birthDate).toLocaleDateString('pt-BR');
+    } catch {
+      return birthDate;
+    }
+  };
+
+  // Formata data de criação (pode ser ISO string com timezone)
+  const formatCreatedAt = (createdAt: string): string => {
+    try {
+      return new Date(createdAt).toLocaleDateString('pt-BR');
+    } catch {
+      return createdAt || '';
+    }
+  };
+
   const handleExportExcel = async () => {
     if (members.length === 0) return alert('Base vazia.');
     setIsExporting(true);
@@ -365,20 +415,49 @@ export function useExcelTools(
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Base de Eleitores');
 
-      worksheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 4, topLeftCell: 'A5', activeCell: 'A5' }];
+      worksheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 5, topLeftCell: 'A6', activeCell: 'A6' }];
 
+      // Linha 1 — Título principal
       worksheet.mergeCells('A1:J1');
       const titleRow = worksheet.getRow(1);
       titleRow.height = 35;
-      const candidateName = organization?.candidate_name ? ` ${organization.candidate_name}` : '';
-      titleRow.getCell(1).value = `RELATÓRIO GESTÃO INTELIGENTE${candidateName}`;
+      titleRow.getCell(1).value = 'RELATÓRIO GESTÃO INTELIGENTE';
       titleRow.getCell(1).style = {
         font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 16 },
         fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002060' } },
         alignment: { horizontal: 'center', vertical: 'middle' }
       };
 
-      const headerRow = worksheet.getRow(4);
+      // Linha 2 — Nome do candidato / campanha
+      worksheet.mergeCells('A2:J2');
+      const candidateRow = worksheet.getRow(2);
+      candidateRow.height = 28;
+      const candidateName = organization?.candidate_name || 'Campanha';
+      const partyInfo = organization?.party_number
+        ? ` · Nº ${organization.party_number}` + (organization?.party ? ` – ${organization.party}` : '')
+        : organization?.party ? ` · ${organization.party}` : '';
+      candidateRow.getCell(1).value = `${candidateName}${partyInfo}`;
+      candidateRow.getCell(1).style = {
+        font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } },
+        alignment: { horizontal: 'center', vertical: 'middle' }
+      };
+
+      // Linha 3 — Sub-info: total de registros + data de geração
+      worksheet.mergeCells('A3:J3');
+      const infoRow = worksheet.getRow(3);
+      infoRow.height = 18;
+      const genDate = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      infoRow.getCell(1).value = `Total de registros: ${members.length}   |   Gerado em: ${genDate}`;
+      infoRow.getCell(1).style = {
+        font: { italic: true, color: { argb: 'FF002060' }, size: 10 },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6E4F7' } },
+        alignment: { horizontal: 'center', vertical: 'middle' }
+      };
+
+      // Linha 4 — vazia (espaçamento visual)
+      // Linha 5 — Cabeçalho das colunas
+      const headerRow = worksheet.getRow(5);
       const headers = ['NOME', 'ZAP', 'E-MAIL', 'NASC', 'IDADE', 'GÊNERO', 'TÍTULO', 'SEÇÃO', 'ZONA', 'DATA'];
       const headerColors = [
         'FF00B050',
@@ -402,17 +481,19 @@ export function useExcelTools(
       });
 
       members.forEach(m => {
+        // Recalcula a idade na hora do export para ficar igual ao app
+        const currentAge = recalcAge(m.birthDate) || m.age || '';
         worksheet.addRow([
           m.name,
-          m.phone,
+          formatPhoneForExport(m.phone),          // Telefone formatado igual ao app
           m.email || '',
-          m.birthDate ? new Date(m.birthDate).toLocaleDateString('pt-BR') : '',
-          m.age || '',
+          formatBirthDate(m.birthDate),            // Data nascimento sem bug de timezone
+          currentAge,                              // Idade recalculada na hora do export
           m.gender,
           m.voterId || '',
           m.voterSection || '',
           m.voterZone || '',
-          new Date(m.createdAt).toLocaleDateString('pt-BR')
+          formatCreatedAt(m.createdAt)             // Data de cadastro
         ]);
       });
 
