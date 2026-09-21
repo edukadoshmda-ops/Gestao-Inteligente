@@ -9,6 +9,10 @@ export interface ExcelToolsOptions {
   loggedInCoordinator?: Coordinator | null;
   activeCoordinator?: Coordinator | null;
   currentOrgId?: string;
+  /** Nome resolvido do candidato (effectiveCandidateName do Dashboard) */
+  candidateName?: string;
+  /** Lista completa (membros + coordenadores sem registro) exibida no app */
+  allPeople?: Member[];
 }
 
 export function useExcelTools(
@@ -407,7 +411,13 @@ export function useExcelTools(
   };
 
   const handleExportExcel = async () => {
-    if (members.length === 0) return alert('Base vazia.');
+    // Usa a lista completa (allPeople) se disponível — igual ao que o app exibe no painel
+    // Isso inclui coordenadores que não têm registro como membro, corrigindo a divergência de totais
+    const exportList: Member[] = (options?.allPeople && options.allPeople.length > 0)
+      ? options.allPeople
+      : members;
+
+    if (exportList.length === 0) return alert('Base vazia.');
     setIsExporting(true);
     showToast('Gerando relatório estratégico...');
 
@@ -429,26 +439,27 @@ export function useExcelTools(
       };
 
       // Linha 2 — Nome do candidato / campanha
+      // Usa options.candidateName (effectiveCandidateName do Dashboard) — nome já resolvido corretamente
       worksheet.mergeCells('A2:J2');
       const candidateRow = worksheet.getRow(2);
       candidateRow.height = 28;
-      const candidateName = organization?.candidate_name || 'Campanha';
+      const resolvedName = options?.candidateName || organization?.candidate_name || 'Campanha';
       const partyInfo = organization?.party_number
         ? ` · Nº ${organization.party_number}` + (organization?.party ? ` – ${organization.party}` : '')
         : organization?.party ? ` · ${organization.party}` : '';
-      candidateRow.getCell(1).value = `${candidateName}${partyInfo}`;
+      candidateRow.getCell(1).value = `${resolvedName}${partyInfo}`;
       candidateRow.getCell(1).style = {
         font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 },
         fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } },
         alignment: { horizontal: 'center', vertical: 'middle' }
       };
 
-      // Linha 3 — Sub-info: total de registros + data de geração
+      // Linha 3 — Sub-info: total igual ao app + data de geração
       worksheet.mergeCells('A3:J3');
       const infoRow = worksheet.getRow(3);
       infoRow.height = 18;
       const genDate = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-      infoRow.getCell(1).value = `Total de registros: ${members.length}   |   Gerado em: ${genDate}`;
+      infoRow.getCell(1).value = `Total de registros: ${exportList.length}   |   Gerado em: ${genDate}`;
       infoRow.getCell(1).style = {
         font: { italic: true, color: { argb: 'FF002060' }, size: 10 },
         fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6E4F7' } },
@@ -480,7 +491,7 @@ export function useExcelTools(
         };
       });
 
-      members.forEach(m => {
+      exportList.forEach(m => {
         // Recalcula a idade na hora do export para ficar igual ao app
         const currentAge = recalcAge(m.birthDate) || m.age || '';
         worksheet.addRow([

@@ -738,18 +738,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     }
   };
 
-  const {
-    handleImportExcel,
-    handleImportExcelForCoordinator,
-    handleExportExcel,
-    isExporting,
-    isImporting
-  } = useExcelTools(members, saveMembers, showToast, organization, {
-    coordinators,
-    loggedInCoordinator,
-    activeCoordinator,
-    currentOrgId: effectiveOrgId
-  });
+  // useExcelTools é declarado após allCampaignPeople (linha ~952) para garantir que a lista completa
+  // seja passada corretamente. Variáveis declaradas abaixo via desestruturação tardia.
 
   const handleClearAll = async () => {
     if (!confirm('Deseja REALMENTE apagar TODOS os eleitores cadastrados? Esta ação não pode ser desfeita.')) return;
@@ -948,6 +938,22 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       (m.neighborhood && m.neighborhood.toLowerCase().includes(term))
     );
   }, [allCampaignPeople, members, debouncedSearch, activeCoordinator, isFieldCoordinator]);
+
+  // Declarado aqui — após allCampaignPeople — para garantir que a lista completa seja enviada ao export
+  const {
+    handleImportExcel,
+    handleImportExcelForCoordinator,
+    handleExportExcel,
+    isExporting,
+    isImporting
+  } = useExcelTools(members, saveMembers, showToast, organization, {
+    coordinators,
+    loggedInCoordinator,
+    activeCoordinator,
+    currentOrgId: effectiveOrgId,
+    candidateName: effectiveCandidateName,  // nome correto resolvido (não usa fallback "Gestão Inteligente")
+    allPeople: allCampaignPeople            // lista igual ao painel: eleitores + coordenadores = total correto
+  });
 
 
   if (isOverdue && !isSuperAdmin) {
