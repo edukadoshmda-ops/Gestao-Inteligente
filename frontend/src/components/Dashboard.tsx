@@ -125,16 +125,61 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     return '6de1ca5c-a3fd-43e1-90ef-4aca4afb2238';
   }, [organization, profile]);
 
+  const [customOrgInfo, setCustomOrgInfo] = useState<Partial<Organization> | null>(() => {
+    try {
+      const orgId = organization?.id || profile?.organization_id || profile?.org_id;
+      if (orgId) {
+        const edited = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+        if (edited[orgId]) return edited[orgId];
+      }
+      const saved = JSON.parse(localStorage.getItem('forja_current_organization') || '{}');
+      if (saved?.candidate_name) return saved;
+    } catch {}
+    return null;
+  });
+
+  useEffect(() => {
+    const handleOrgUpdated = (e: any) => {
+      if (e.detail) {
+        setCustomOrgInfo(prev => ({ ...(prev || {}), ...e.detail }));
+      }
+    };
+    window.addEventListener('organizationUpdated', handleOrgUpdated);
+    return () => window.removeEventListener('organizationUpdated', handleOrgUpdated);
+  }, []);
+
   const effectiveCandidateName = useMemo(() => {
-    if (organization?.candidate_name && organization.candidate_name !== 'Visitante' && organization.candidate_name !== 'Administrador') {
+    // 1. Dados customizados atualizados em tempo real via Settings
+    if (customOrgInfo?.candidate_name && customOrgInfo.candidate_name !== 'Visitante' && customOrgInfo.candidate_name !== 'Gestão Inteligente') {
+      return customOrgInfo.candidate_name;
+    }
+    // 2. Organização original
+    if (organization?.candidate_name && 
+        organization.candidate_name !== 'Visitante' && 
+        organization.candidate_name !== 'Administrador' && 
+        organization.candidate_name !== 'Gestão Inteligente') {
       return organization.candidate_name;
     }
+    // 3. LocalStorage editedOrgs
     try {
+      const orgId = organization?.id || profile?.organization_id || profile?.org_id;
+      if (orgId) {
+        const edited = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+        if (edited[orgId]?.candidate_name && edited[orgId].candidate_name !== 'Gestão Inteligente') {
+          return edited[orgId].candidate_name;
+        }
+      }
       const saved = JSON.parse(localStorage.getItem('forja_current_organization') || '{}');
-      if (saved?.candidate_name && saved.candidate_name !== 'Visitante') return saved.candidate_name;
+      if (saved?.candidate_name && saved.candidate_name !== 'Visitante' && saved.candidate_name !== 'Gestão Inteligente') {
+        return saved.candidate_name;
+      }
     } catch {}
-    return 'Gestão Inteligente';
-  }, [organization]);
+    // 4. Nome do perfil do candidato se não for email
+    if (profile?.role === 'candidate' && profile.full_name && !profile.full_name.includes('@')) {
+      return profile.full_name;
+    }
+    return organization?.candidate_name || 'Campanha Eleitoral';
+  }, [organization, profile, customOrgInfo]);
 
   // Função utilitária resiliente para cópia na área de transferência (Clipboard API + Fallback)
   const copyTextToClipboard = async (text: string): Promise<boolean> => {
@@ -996,7 +1041,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
         }} 
         onLogout={onLogout} 
         username={username} 
-        candidateName={organization?.candidate_name}
+        candidateName={effectiveCandidateName}
         role={profile.role}
         logoUrl={organization?.logo_url}
       />
@@ -1300,7 +1345,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                     </label>
 
                     <button
-                      onClick={handleExportExcel}
+                      onClick={() => handleExportExcel(allCampaignPeople, effectiveCandidateName)}
                       disabled={isExporting}
                       className={` ${isExporting ? 'bg-gray-100 text-gray-400' : 'bg-gov-yellow text-gov-blue hover:shadow-md'} px-3 py-3 font-black uppercase text-[8px] sm:text-[9px] flex items-center justify-center gap-1.5 transition-all border border-gov-blue/10 rounded-2xl`}
                     >
@@ -1528,7 +1573,7 @@ export default function Dashboard({ username, organization, profile, onLogout, o
                 ) : activeTab === 'election_day' ? (
                   <ElectionDay members={members} />
                 ) : activeTab === 'settings' ? (
-                  <Settings username={username} organization={organization} profile={profile} />
+                  <Settings username={username} organization={{ ...(organization || {}), ...(customOrgInfo || {}) } as any} profile={profile} />
                 ) : activeTab === 'admin_master' && permissions.canAccessAdminMaster ? (
                   <AdminMaster />
                 ) : (

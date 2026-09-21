@@ -106,8 +106,19 @@ export default function App() {
       }
     };
 
+    const handleOrgUpdate = (e: any) => {
+      if (e.detail) {
+        setBrandOrg((prev: any) => ({ ...(prev || {}), ...e.detail }));
+        setProfile((prev: any) => prev ? { ...prev, organization: { ...(prev.organization || {}), ...e.detail } } : prev);
+      }
+    };
+
     window.addEventListener('themeUpdated', handleThemeUpdate);
-    return () => window.removeEventListener('themeUpdated', handleThemeUpdate);
+    window.addEventListener('organizationUpdated', handleOrgUpdate);
+    return () => {
+      window.removeEventListener('themeUpdated', handleThemeUpdate);
+      window.removeEventListener('organizationUpdated', handleOrgUpdate);
+    };
   }, [session, showLogin, showSales, isPublicForm, isPublicCoordForm, brandOrg, profile]);
 
   useEffect(() => {

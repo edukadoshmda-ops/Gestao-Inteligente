@@ -39,6 +39,8 @@ export default function CampaignCreate({ onSuccess, onCancel }: CampaignCreatePr
         .from('organizations')
         .insert([{
           candidate_name: formData.candidate_name,
+          party: formData.party || null,
+          city: formData.city || null,
           subscription_status: 'pending',
           subdomain: formData.candidate_name.toLowerCase().replace(/\s+/g, '-').substring(0, 20)
         }])

@@ -42,8 +42,25 @@ export default function Settings({ username, organization, profile }: SettingsPr
   const [geminiError, setGeminiError] = useState('');
   const [geminiCopied, setGeminiCopied] = useState(false);
 
+  // Campaign Info state
+  const [candidateName, setCandidateName] = useState(organization?.candidate_name || '');
+  const [party, setParty] = useState(organization?.party || '');
+  const [partyNumber, setPartyNumber] = useState(organization?.party_number || '');
+  const [city, setCity] = useState(organization?.city || '');
+  const [state, setState] = useState(organization?.state || '');
+  const [campaignSaving, setCampaignSaving] = useState(false);
+  const [campaignSuccess, setCampaignSuccess] = useState(false);
+  const [campaignError, setCampaignError] = useState('');
+
   // Load existing data on mount / organization update
   useEffect(() => {
+    if (organization) {
+      if (organization.candidate_name) setCandidateName(organization.candidate_name);
+      if (organization.party) setParty(organization.party);
+      if (organization.party_number) setPartyNumber(organization.party_number);
+      if (organization.city) setCity(organization.city);
+      if (organization.state) setState(organization.state);
+    }
     if (organization?.gemini_api_key) {
       setGeminiKey(organization.gemini_api_key);
     }
@@ -54,6 +71,62 @@ export default function Settings({ username, organization, profile }: SettingsPr
       setSecondaryColor(organization.theme_secondary || '#FFCC00');
     }
   }, [organization]);
+
+  const handleSaveCampaignInfo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!candidateName.trim()) {
+      setCampaignError('O nome do candidato / campanha é obrigatório.');
+      return;
+    }
+    setCampaignSaving(true);
+    setCampaignError('');
+    setCampaignSuccess(false);
+
+    try {
+      const orgId = organization?.id || profile?.organization_id || profile?.org_id;
+      const updatedFields = {
+        candidate_name: candidateName.trim(),
+        party: party.trim() || null,
+        party_number: partyNumber.trim() || null,
+        city: city.trim() || null,
+        state: state.trim() || null
+      };
+
+      // 1. Salvar no localStorage
+      try {
+        if (orgId) {
+          const edited = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+          edited[orgId] = { ...edited[orgId], ...updatedFields };
+          localStorage.setItem('@AppGestao:editedOrgs', JSON.stringify(edited));
+        }
+        const currentOrg = JSON.parse(localStorage.getItem('forja_current_organization') || '{}');
+        localStorage.setItem('forja_current_organization', JSON.stringify({ ...currentOrg, ...updatedFields }));
+      } catch {}
+
+      // 2. Salvar no Supabase
+      if (orgId) {
+        const client = (supabaseAdmin && !supabaseAdmin.isMock) ? supabaseAdmin : supabase;
+        const { error: updateErr } = await client
+          .from('organizations')
+          .update(updatedFields)
+          .eq('id', orgId);
+
+        if (updateErr) {
+          console.warn('Aviso ao salvar organização no Supabase:', updateErr);
+        }
+      }
+
+      // 3. Disparar evento global para atualizar o app em tempo real
+      window.dispatchEvent(new CustomEvent('organizationUpdated', { detail: updatedFields }));
+
+      setCampaignSuccess(true);
+      setTimeout(() => setCampaignSuccess(false), 4000);
+    } catch (err: any) {
+      setCampaignError(err.message || 'Erro ao salvar dados da campanha');
+    } finally {
+      setCampaignSaving(false);
+    }
+  };
 
   const handleSaveTheme = async () => {
     setThemeSaving(true);
@@ -379,6 +452,131 @@ export default function Settings({ username, organization, profile }: SettingsPr
           </div>
         </div>
       </div>
+
+      {/* ── DADOS DA CAMPANHA & CANDIDATO (EXCLUSIVO GESTORES/CANDIDATO) ──── */}
+      {isCampaignAdmin && (
+        <div className="bg-white p-6 border-b-4 border-gov-blue shadow-md rounded-2xl">
+          <div className="flex items-center gap-3 mb-2">
+            <Building2 className="w-6 h-6 text-gov-blue" />
+            <div>
+              <h2 className="text-xl font-black text-gov-blue uppercase">Dados Oficiais da Campanha & Candidato</h2>
+              <p className="text-xs text-gray-500 font-bold uppercase tracking-wide">
+                O nome, partido e número configurados aqui aparecerão em todo o sistema e nos relatórios exportados.
+              </p>
+            </div>
+          </div>
+
+          {campaignSuccess && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-2 bg-green-50 text-green-700 p-4 rounded-xl border-l-4 border-green-500 text-xs font-bold mb-4"
+            >
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              Dados da campanha e candidato atualizados com sucesso no sistema e relatórios!
+            </motion.div>
+          )}
+
+          {campaignError && (
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex items-center gap-2 bg-red-50 text-red-700 p-4 rounded-xl border-l-4 border-red-500 text-xs font-bold mb-4"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {campaignError}
+            </motion.div>
+          )}
+
+          <form onSubmit={handleSaveCampaignInfo} className="space-y-4 max-w-xl">
+            <div>
+              <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">
+                Nome do Candidato / Nome Oficial da Campanha *
+              </label>
+              <input
+                type="text"
+                required
+                value={candidateName}
+                onChange={e => setCandidateName(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-gov-blue outline-none font-bold text-sm"
+                placeholder="Ex: Deputado João Silva, Campanha 2026..."
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">
+                  Partido Político (Sigla)
+                </label>
+                <input
+                  type="text"
+                  value={party}
+                  onChange={e => setParty(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-gov-blue outline-none font-bold text-sm uppercase"
+                  placeholder="Ex: PL, PT, MDB, UNIÃO..."
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">
+                  Número do Candidato
+                </label>
+                <input
+                  type="text"
+                  value={partyNumber}
+                  onChange={e => setPartyNumber(e.target.value.replace(/\D/g, ''))}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-gov-blue outline-none font-bold text-sm"
+                  placeholder="Ex: 22, 13, 22123..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">
+                  Cidade / Município Base
+                </label>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={e => setCity(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-gov-blue outline-none font-bold text-sm"
+                  placeholder="Ex: Rio Branco, São Paulo..."
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-gray-500 block mb-1">
+                  Estado (UF)
+                </label>
+                <input
+                  type="text"
+                  maxLength={2}
+                  value={state}
+                  onChange={e => setState(e.target.value.toUpperCase())}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-gov-blue outline-none font-bold text-sm uppercase"
+                  placeholder="Ex: AC, SP, RJ..."
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={campaignSaving}
+              className="w-full bg-gov-blue text-white font-black py-3.5 rounded-xl uppercase text-xs tracking-widest hover:bg-blue-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-md shadow-gov-blue/20"
+            >
+              {campaignSaving ? (
+                <span className="animate-pulse">Salvando dados da campanha...</span>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 text-gov-yellow" />
+                  Salvar Dados da Campanha
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* ── ALTERAR SENHA (DESTAQUE PRIORITÁRIO) ─────────────── */}
       <div className="bg-white p-6 border-b-4 border-gov-yellow shadow-md rounded-2xl">

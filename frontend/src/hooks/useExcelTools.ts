@@ -410,12 +410,21 @@ export function useExcelTools(
     }
   };
 
-  const handleExportExcel = async () => {
-    // Usa a lista completa (allPeople) se disponível — igual ao que o app exibe no painel
-    // Isso inclui coordenadores que não têm registro como membro, corrigindo a divergência de totais
-    const exportList: Member[] = (options?.allPeople && options.allPeople.length > 0)
-      ? options.allPeople
-      : members;
+  const handleExportExcel = async (customList?: Member[], customCandidateName?: string) => {
+    // 1. Prioridade absoluta para a lista passada diretamente no clique (ex: allCampaignPeople com 6165 pessoas)
+    // 2. Fallback para options?.allPeople
+    // 3. Fallback para members
+    let candidateList: Member[] = [];
+    if (Array.isArray(customList) && customList.length > 0) {
+      candidateList = customList;
+    } else if (options?.allPeople && options.allPeople.length > 0) {
+      candidateList = options.allPeople;
+    } else {
+      candidateList = members;
+    }
+
+    // Filtrar membros válidos
+    const exportList = candidateList.filter(m => m && (m.name || m.phone || m.id));
 
     if (exportList.length === 0) return alert('Base vazia.');
     setIsExporting(true);
@@ -439,14 +448,38 @@ export function useExcelTools(
       };
 
       // Linha 2 — Nome do candidato / campanha
-      // Usa options.candidateName (effectiveCandidateName do Dashboard) — nome já resolvido corretamente
       worksheet.mergeCells('A2:J2');
       const candidateRow = worksheet.getRow(2);
       candidateRow.height = 28;
-      const resolvedName = options?.candidateName || organization?.candidate_name || 'Campanha';
-      const partyInfo = organization?.party_number
-        ? ` · Nº ${organization.party_number}` + (organization?.party ? ` – ${organization.party}` : '')
-        : organization?.party ? ` · ${organization.party}` : '';
+
+      // Resolução do nome: customCandidateName > options.candidateName > organization.candidate_name
+      let resolvedName = (typeof customCandidateName === 'string' && customCandidateName.trim())
+        ? customCandidateName.trim()
+        : (options?.candidateName && options.candidateName.trim())
+          ? options.candidateName.trim()
+          : (organization?.candidate_name && organization.candidate_name.trim())
+            ? organization.candidate_name.trim()
+            : 'Campanha Eleitoral';
+
+      let party = organization?.party;
+      let partyNumber = organization?.party_number;
+      try {
+        const orgId = organization?.id;
+        if (orgId) {
+          const edited = JSON.parse(localStorage.getItem('@AppGestao:editedOrgs') || '{}');
+          if (edited[orgId]) {
+            if (edited[orgId].party) party = edited[orgId].party;
+            if (edited[orgId].party_number) partyNumber = edited[orgId].party_number;
+          }
+        }
+        const currentSaved = JSON.parse(localStorage.getItem('forja_current_organization') || '{}');
+        if (!party && currentSaved.party) party = currentSaved.party;
+        if (!partyNumber && currentSaved.party_number) partyNumber = currentSaved.party_number;
+      } catch {}
+
+      const partyInfo = partyNumber
+        ? ` · Nº ${partyNumber}` + (party ? ` – ${party}` : '')
+        : party ? ` · ${party}` : '';
       candidateRow.getCell(1).value = `${resolvedName}${partyInfo}`;
       candidateRow.getCell(1).style = {
         font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 },
