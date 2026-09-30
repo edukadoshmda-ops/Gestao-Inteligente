@@ -899,12 +899,82 @@ export default function Dashboard({ username, organization, profile, onLogout, o
       return members.map(m => ({ ...m, isCoordinator: false }));
     }
 
-    // Rastrear quais coordenadores foram encontrados e vinculados a registros de membros existentes
+    // ── Pré-índice de coordenadores para lookup O(1) ──────────────────────
+    // Em vez de N × M comparações (16k × 406 = 6.5M), fazemos N lookups de O(1)
+    const coordById       = new Map<string, Coordinator>(); // por id limpo (sem "coord-")
+    const coordByEmail    = new Map<string, Coordinator>(); // por email normalizado
+    const coordByVoterId  = new Map<string, Coordinator>(); // por título de eleitor
+    const coordByPhone    = new Map<string, Coordinator>(); // por telefone limpo
+
+    // Conjunto de ids já usados para evitar match duplicado
     const matchedCoordIds = new Set<string>();
+
+    const GENERIC_EMAILS = new Set(['maria123@gmail.com', 'teste@gmail.com', 'admin@gmail.com', 'contato@gmail.com']);
+    const isGenericEmail = (e: string) => GENERIC_EMAILS.has(e) || /^(maria123|teste|admin|contato|eleitor|coord)/.test(e);
+
+    coordinators.forEach(c => {
+      const rawId = String(c.id || '').toLowerCase().replace(/^coord-/, '').trim();
+      if (rawId) coordById.set(rawId, c);
+
+      const email = (c.email || '').trim().toLowerCase();
+      if (email && !isGenericEmail(email)) coordByEmail.set(email, c);
+
+      const voter = (c.voterId || '').trim();
+      if (voter && voter.length >= 5) coordByVoterId.set(voter, c);
+
+      const phone = ((c.whatsapp || (c as any).phone) || '').replace(/\D/g, '');
+      if (phone && phone.length >= 10) {
+        coordByPhone.set(phone, c);
+        // também indexar versão sem código de país
+        if (phone.startsWith('55') && phone.length >= 12) coordByPhone.set(phone.slice(2), c);
+      }
+    });
+
+    // Função de match rápido via Maps (O(1) por candidato)
+    const findCoordForMember = (m: Member): Coordinator | undefined => {
+      const mId = String(m.id || '').toLowerCase().replace(/^coord-/, '').trim();
+      const mEmail = (m.email || '').trim().toLowerCase();
+      const mVoter = (m.voterId || '').trim();
+      const mPhone = (m.phone || '').replace(/\D/g, '');
+      const mName = normalizeName(m.name);
+
+      // 1. Match por ID
+      let c = mId ? coordById.get(mId) : undefined;
+      if (c && !matchedCoordIds.has(c.id)) return c;
+
+      // 2. Match por Título de Eleitor
+      if (mVoter && mVoter.length >= 5) {
+        c = coordByVoterId.get(mVoter);
+        if (c && !matchedCoordIds.has(c.id)) return c;
+      }
+
+      // 3. Match por Telefone
+      if (mPhone && mPhone.length >= 10) {
+        c = coordByPhone.get(mPhone);
+        if (!c && mPhone.startsWith('55')) c = coordByPhone.get(mPhone.slice(2));
+        if (c && !matchedCoordIds.has(c.id)) return c;
+      }
+
+      // 4. Match por Email (se não for genérico)
+      if (mEmail && !isGenericEmail(mEmail)) {
+        c = coordByEmail.get(mEmail);
+        if (c && !matchedCoordIds.has(c.id)) return c;
+      }
+
+      // 5. Match por Nome completo normalizado (fallback, apenas se tiver espaço — nome completo)
+      if (mName && mName.includes(' ')) {
+        const byName = coordinators.find(coord =>
+          !matchedCoordIds.has(coord.id) && normalizeName(coord.name) === mName
+        );
+        if (byName) return byName;
+      }
+
+      return undefined;
+    };
 
     // 1. Marca os membros que correspondem a coordenadores legítimos (1 para 1)
     const list: Member[] = members.map(m => {
-      const foundCoord = coordinators.find(c => !matchedCoordIds.has(c.id) && isMemberMatchingCoordinator(m, c));
+      const foundCoord = findCoordForMember(m);
       if (foundCoord) {
         matchedCoordIds.add(foundCoord.id);
         return {
@@ -944,7 +1014,8 @@ export default function Dashboard({ username, organization, profile, onLogout, o
     });
 
     return list;
-  }, [members, coordinators, isFieldCoordinator, isMemberMatchingCoordinator]);
+  }, [members, coordinators, isFieldCoordinator]);
+
 
   // Totais estratégicos para os cards do topo do painel (100% alinhados à lista e sem discrepâncias)
   const campaignCoordCount = useMemo(() => {

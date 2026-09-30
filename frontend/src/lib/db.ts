@@ -455,35 +455,46 @@ export const db = {
 
     const rawList = Array.from(mergedMap.values());
 
-    // 3. Aplica deduplicação automática estrita para NUNCA exibir duplicados!
-    const { deduplicated, removedIds } = deduplicateMemberList(rawList);
+    // 3. Deduplicação lazy: pula o passo pesado se a contagem bater com o cache atual
+    // (evita O(n log n) sort + comparações a cada refresh quando nada mudou)
+    const cachedEntry = memoryMembersCache.get(orgKey);
+    const skipDedup = !forceRefresh && cachedEntry && cachedEntry.data.length === rawList.length;
 
-    if (removedIds.length > 0) {
-      addDeletedMemberIds(removedIds);
-      if (client) {
-        client.from('members').delete().in('id', removedIds).then(() => {}).catch(() => {});
+    let finalMembers: Member[];
+    if (skipDedup) {
+      finalMembers = cachedEntry!.data;
+    } else {
+      const { deduplicated, removedIds } = deduplicateMemberList(rawList);
+
+      if (removedIds.length > 0) {
+        addDeletedMemberIds(removedIds);
+        if (client) {
+          client.from('members').delete().in('id', removedIds).then(() => {}).catch(() => {});
+        }
+        try {
+          fetch('http://localhost:3500/api/delete-members', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: removedIds })
+          }).catch(() => {});
+        } catch {}
       }
-      try {
-        fetch('http://localhost:3500/api/delete-members', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: removedIds })
-        }).catch(() => {});
-      } catch {}
-    }
 
-    const finalMembers = deduplicated.sort((a, b) => {
-      const timeA = new Date(a.createdAt || 0).getTime();
-      const timeB = new Date(b.createdAt || 0).getTime();
-      return timeB - timeA;
-    });
+      finalMembers = deduplicated.sort((a, b) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+    }
 
     // 4. Atualizar Cache em memória e LocalStorage com a base limpa
     memoryMembersCache.set(orgKey, { data: finalMembers, timestamp: now });
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalMembers));
+      // Salva apenas na chave específica da org (evita duplicar ~8MB no localStorage global)
       if (orgId && orgId !== 'undefined' && orgId !== 'demo-org') {
         localStorage.setItem(`@AppGestao:members_${orgId}`, JSON.stringify(finalMembers));
+      } else {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalMembers));
       }
       localStorage.setItem(`@AppGestao:members_ts_${orgKey}`, String(now));
     } catch {}

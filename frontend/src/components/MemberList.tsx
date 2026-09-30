@@ -19,6 +19,8 @@ import {
   MessageSquare
 } from 'lucide-react';
 
+const ITEMS_PER_PAGE = 50;
+
 type SortMode = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc' | 'coordinator_first';
 type FilterType = 'all' | 'voters' | 'coordinators';
 
@@ -126,6 +128,7 @@ export default function MemberList({
     if (onFilterChange) onFilterChange(val);
   };
   const [sortMode, setSortMode] = useState<SortMode>('date_desc');
+  const [currentPage, setCurrentPage] = useState(1);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // Estados de seleção para WhatsApp em massa
@@ -184,7 +187,25 @@ export default function MemberList({
     });
   }, [members, filterType, sortMode]);
 
+  // Resetar para página 1 quando lista muda (filtro, busca, ordenação)
+  const prevDisplayedLengthRef = useRef(0);
+  if (prevDisplayedLengthRef.current !== displayedMembers.length) {
+    prevDisplayedLengthRef.current = displayedMembers.length;
+    if (currentPage !== 1) setCurrentPage(1);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(displayedMembers.length / ITEMS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  // Só renderiza 50 itens — o resto permanece em memória mas fora do DOM
+  const pagedMembers = useMemo(() => {
+    const start = (safeCurrentPage - 1) * ITEMS_PER_PAGE;
+    return displayedMembers.slice(start, start + ITEMS_PER_PAGE);
+  }, [displayedMembers, safeCurrentPage]);
+
+
   const copyToClipboard = async (text: string): Promise<boolean> => {
+
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -470,8 +491,10 @@ export default function MemberList({
             )}
           </div>
         ) : (
-          displayedMembers.map((member, idx) => {
+          pagedMembers.map((member, idx) => {
             const isCoordMember = !isCoordinatorView && Boolean(member.isCoordinator);
+            const globalIdx = (safeCurrentPage - 1) * ITEMS_PER_PAGE + idx;
+
             return (
               <div
                 key={member.id}
@@ -484,7 +507,7 @@ export default function MemberList({
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-start gap-2 flex-1 min-w-0">
                     <span className="w-6 h-6 rounded-lg bg-gray-100 text-gov-blue text-[10px] font-black flex items-center justify-center shrink-0 border border-gray-200">
-                      {idx + 1}
+                      {globalIdx + 1}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -644,8 +667,9 @@ export default function MemberList({
                 </td>
               </tr>
             )}
-            {displayedMembers.map((member, idx) => {
+            {pagedMembers.map((member, idx) => {
               const isCoordinatorMember = !isCoordinatorView && Boolean(member.isCoordinator);
+              const globalIdx = (safeCurrentPage - 1) * ITEMS_PER_PAGE + idx;
 
               return (
                 <tr 
@@ -655,7 +679,7 @@ export default function MemberList({
                 >
                   {/* Número Sequencial */}
                   <td className="px-3 py-2.5 text-xs font-black text-center text-gov-blue border-r border-gray-100 bg-gray-50/70 w-14">
-                    {idx + 1}
+                    {globalIdx + 1}
                   </td>
 
                   {/* Nome Completo: VERDE para Coordenadores, PRETO para Eleitores */}
@@ -755,12 +779,12 @@ export default function MemberList({
         </table>
       </div>
 
-      {/* Rodapé com contagem unificada da campanha ou isolada do coordenador */}
+      {/* Rodapé com contagem unificada da campanha + controles de paginação */}
       <div className="bg-gov-blue text-white px-4 py-2.5 flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] font-black uppercase tracking-widest sticky bottom-0 z-10 shadow-lg">
         <span className="text-yellow-400 font-black">
           {isCoordinatorView ? 'Meus Eleitores Cadastrados' : 'Relação Geral da Campanha'}
         </span>
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap justify-center">
           {!isCoordinatorView && (
             <>
               <span className="text-emerald-300 font-black bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
@@ -774,6 +798,30 @@ export default function MemberList({
           <span className="text-white font-black bg-white/15 px-3 py-0.5 rounded-full">
             Total: {members.length} {isCoordinatorView ? 'Eleitores' : 'Pessoas Cadastradas'}
           </span>
+          {/* Controles de Paginação */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="p-1 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                title="Página anterior"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="bg-white/20 px-2.5 py-0.5 rounded-full font-black text-[10px] whitespace-nowrap">
+                {safeCurrentPage}/{totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="p-1 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                title="Próxima página"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
